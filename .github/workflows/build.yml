@@ -1,0 +1,86 @@
+# Tests every push and pull request, builds the deployer downloads, and on a v* tag publishes them
+# as a GitHub release. Push a tag like v0.1.0 to release.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: web
+        working-directory: web
+        run: |
+          npm ci
+          npm run typecheck
+          npx vitest run
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+
+  build:
+    needs: test
+    # lipo, which makes the one macOS program for both CPUs, only exists on a Mac.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: build
+        env:
+          MINTYX_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          scripts/build-deployer.sh
+          scripts/package-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mintyx-deploy
+          path: dist/release/
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: mintyx-deploy
+          path: dist/release
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Mintyx $GITHUB_REF_NAME" \
+            --notes-file .github/release-notes.md

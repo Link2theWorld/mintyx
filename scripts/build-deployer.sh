@@ -9,7 +9,8 @@ cd "$root"
 
 payload_dir=internal/deploy/payload/bin
 out_dir=dist
-version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+# CI passes the tag it is building; a local build names itself after the checkout.
+version=${MINTYX_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 
 if [ "${SKIP_WEB:-0}" != 1 ]; then
   echo "==> web frontend"
@@ -33,7 +34,7 @@ for target in darwin/arm64 darwin/amd64 windows/amd64 linux/amd64; do
   name="mintyx-deploy-$os-$arch"
   [ "$os" = windows ] && name="$name.exe"
   echo "==> deployer $target"
-  CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$out_dir/$name" ./cmd/mintyx-deploy
+  CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$out_dir/$name" ./cmd/mintyx-deploy
 done
 
 echo "==> done ($version)"

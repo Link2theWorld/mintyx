@@ -23,6 +23,9 @@ import (
 	"github.com/Link2theWorld/mintyx/internal/deploy/payload"
 )
 
+// version is filled in by scripts/build-deployer.sh with the release tag.
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "mintyx-deploy:", err)
@@ -83,7 +86,10 @@ func run() error {
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpServer.Serve(ln) }()
 
-	fmt.Printf("\nMintyx deployer is running. Open this address in your browser:\n\n  %s\n\nKeep this window open; press Ctrl+C to quit.\n\n", ui.URL())
+	// Most people meet this window after double-clicking the download, so it speaks their language first.
+	fmt.Printf("\nMintyx 部署器 %[1]s 已启动。浏览器没有自动打开的话，把下面的地址复制到浏览器里：\n"+
+		"Mintyx deployer %[1]s is running. If no browser opened, copy this address into one:\n\n  %[2]s\n\n"+
+		"用完之前别关这个窗口，按 Ctrl+C 退出。\nKeep this window open; press Ctrl+C to quit.\n\n", version, ui.URL())
 	if !*noBrowser {
 		if err := openBrowser(ui.URL()); err != nil {
 			fmt.Fprintln(os.Stderr, "mintyx-deploy: could not open a browser, copy the address above instead:", err)

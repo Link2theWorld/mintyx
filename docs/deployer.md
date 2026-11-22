@@ -6,6 +6,76 @@
 
 支持的服务器：使用 systemd 的 64 位 Linux（x86_64 或 arm64）。登录用户需要是 root，或者能用 sudo。
 
+## 下载
+
+在 [Releases 页面](https://github.com/Link2theWorld/mintyx/releases/latest) 按自己电脑的系统下载：
+
+| 你的电脑 | 下载这个文件 | 怎么打开 |
+|---|---|---|
+| Windows 10 / 11 | `mintyx-deploy-windows.exe` | 双击 |
+| macOS（Apple 芯片和 Intel 都能用） | `mintyx-deploy-macos.zip` | 双击解压，再双击解压出来的 `mintyx-deploy` |
+| Linux（x86_64） | `mintyx-deploy-linux.tar.gz` | 在终端里运行 `tar xzf mintyx-deploy-linux.tar.gz && ./mintyx-deploy` |
+
+打开后先出现一个命令行窗口（macOS 上是“终端”），接着浏览器自动打开部署页面。
+部署和使用面板期间别关这个窗口，关掉它部署器就退出了。
+
+第一次打开时系统多半会拦一下，按下一节放行。
+
+## 第一次打开被系统拦住
+
+部署器没有购买微软和苹果的开发者签名，所以浏览器和系统会提示“不常下载”“无法验证开发者”。
+按下面的步骤放行一次即可。想先确认文件没被改过，见本节最后的“核对文件”。
+
+### 下载时浏览器拦截
+
+- **Edge**：下载栏提示“通常不会下载”时，把鼠标移到这条下载上，点右边的“…”，选“保留”，
+  再点“显示更多”，选“仍然保留”。
+- **Chrome**：提示“不常被下载”或“可疑文件”时，在下载列表里点“保留”或“仍然下载”。
+- **Safari**：一般不拦截，下载完会自动解压 zip。
+
+### Windows
+
+双击后出现蓝色的“Windows 已保护你的电脑”：
+
+1. 点提示文字里的“更多信息”。
+2. 点下面出现的“仍要运行”。
+
+如果杀毒软件把文件删除或隔离了，先按“核对文件”确认它和发布页上的一致，再在杀毒软件里恢复它
+（Windows 自带的是“Windows 安全中心 → 病毒和威胁防护 → 保护历史记录”，找到这条记录点“允许”）。
+
+### macOS 15 及以后（Sequoia、Tahoe）
+
+1. 双击 `mintyx-deploy`，提示“Apple 无法验证……”时点“完成”。
+2. 打开“系统设置 → 隐私与安全性”，拉到最下面的“安全性”，那里会写着 `mintyx-deploy` 已被阻止，
+   点旁边的“仍要打开”。
+3. 在弹出的提示里再点“仍要打开”，输入开机密码或用触控 ID 确认。
+
+### macOS 14 及更早
+
+在访达里按住 Control 键点 `mintyx-deploy`（或者用右键点），选“打开”，在提示里再点“打开”。
+
+### 会用终端的话
+
+macOS 上一条命令就能放行，之后直接双击：
+
+```sh
+xattr -d com.apple.quarantine ~/Downloads/mintyx-deploy
+```
+
+（文件不在“下载”文件夹的话，把路径换成实际位置；也可以输入 `xattr -d com.apple.quarantine `
+之后把文件拖进终端窗口。）
+
+### 核对文件
+
+每个版本的 Releases 页面都有 `SHA256SUMS.txt`，列出各个文件的 SHA-256。算出来的值和里面那一行一致，
+文件就是发布时的原样：
+
+| 系统 | 命令 |
+|---|---|
+| Windows（PowerShell） | `Get-FileHash .\mintyx-deploy-windows.exe` |
+| macOS | `shasum -a 256 mintyx-deploy-macos.zip` |
+| Linux | `sha256sum -c SHA256SUMS.txt --ignore-missing` |
+
 ## 它做什么
 
 1. 通过 SSH 登录服务器。第一次连接时记住主机指纹；以后指纹变了会拒绝连接并提示
@@ -97,6 +167,22 @@ scripts/build-deployer.sh
 
 直接 `go build ./cmd/mintyx-deploy` 也能编译，但得到的程序里没有面板文件，启动时会说明这一点，
 此时需要用 `-panel-binary` 指定。
+
+在 Mac 上接着运行 `scripts/package-release.sh`，会在 `dist/release/` 下生成发布用的三个文件和
+`SHA256SUMS.txt`：Windows 的 exe、把两种 CPU 合成一个程序的 macOS zip（要用 Xcode 命令行工具里的 `lipo`），
+以及 Linux 的 tar.gz。
+
+## 发布
+
+推一个 `v` 开头的 tag（如 `v0.1.0`），GitHub Actions（`.github/workflows/build.yml`）会跑测试、
+在 macOS 机器上构建并打包，再用这个 tag 建一个 Release，附上上面那几个文件。
+Release 的说明文字取自 `.github/release-notes.md`。平时的推送和 PR 也会跑同样的测试和构建，
+打好的文件作为 Actions 的产物保留，但不发布。
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 不连真服务器也能看部署器的每一步界面：下面的命令在本机起一台假的服务器和部署器页面，
 按它打印的地址打开页面，再用它打印的 IP、端口、用户名和密码连接。
