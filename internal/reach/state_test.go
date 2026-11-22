@@ -33,10 +33,16 @@ func TestAdvance(t *testing.T) {
 		{"bad rounds of different kinds still count, the latest kind wins", 2, []step{
 			{OK, OK, "", 0}, {PortBlocked, OK, PortBlocked, 1}, {IPBlocked, IPBlocked, "", 0},
 		}},
-		{"recovery needs one round", 2, []step{
-			{Down, "", Down, 1}, {Down, Down, "", 0}, {OK, OK, "", 0},
+		{"recovery needs as many rounds as trouble", 2, []step{
+			{Down, "", Down, 1}, {Down, Down, "", 0}, {OK, Down, OK, 1}, {OK, OK, "", 0},
 		}},
-		{"confirm 1 trusts a single bad round", 1, []step{{OK, OK, "", 0}, {Down, Down, "", 0}}},
+		{"a bad round in the middle of recovery starts it over", 2, []step{
+			{Down, "", Down, 1}, {Down, Down, "", 0}, {OK, Down, OK, 1}, {Down, Down, "", 0}, {OK, Down, OK, 1},
+		}},
+		{"a different kind of trouble after confirmed trouble also waits", 2, []step{
+			{OK, OK, "", 0}, {Down, OK, Down, 1}, {Down, Down, "", 0}, {IPBlocked, Down, IPBlocked, 1}, {IPBlocked, IPBlocked, "", 0},
+		}},
+		{"confirm 1 trusts a single round either way", 1, []step{{OK, OK, "", 0}, {Down, Down, "", 0}, {OK, OK, "", 0}}},
 		{"confirm 3 waits for the third", 3, []step{
 			{OK, OK, "", 0}, {Down, OK, Down, 1}, {Down, OK, Down, 2}, {Down, Down, "", 0},
 		}},
@@ -82,6 +88,7 @@ func TestApplyAlertsOncePerTransition(t *testing.T) {
 		{1: IPBlocked, 2: OK},
 		{1: OK, 2: OK},
 		{1: OK, 2: OK},
+		{1: OK, 2: OK},
 	} {
 		st = st.Apply(targets, round(v), 2, t0.Add(time.Duration(i)*time.Hour))
 		flush()
@@ -93,7 +100,7 @@ func TestApplyAlertsOncePerTransition(t *testing.T) {
 	if !reflect.DeepEqual(sent, want) {
 		t.Errorf("alerts = %+v\nwant     %+v", sent, want)
 	}
-	if got := st.Targets[1].Since; !got.Equal(t0.Add(5 * time.Hour)) {
+	if got := st.Targets[1].Since; !got.Equal(t0.Add(6 * time.Hour)) {
 		t.Errorf("Since = %s, want the round that confirmed recovery", got)
 	}
 }
@@ -101,7 +108,7 @@ func TestApplyAlertsOncePerTransition(t *testing.T) {
 func TestApplyKeepsUnsentAlertsUntilCleared(t *testing.T) {
 	targets := []Target{{ID: 1, Name: "tokyo", Host: "a.example", Port: 443}}
 	var st State
-	for _, v := range []Verdict{OK, Down, Down, OK} {
+	for _, v := range []Verdict{OK, Down, Down, OK, OK} {
 		st = st.Apply(targets, round(map[int64]Verdict{1: v}), 2, t0)
 	}
 	want := []Change{
@@ -110,6 +117,23 @@ func TestApplyKeepsUnsentAlertsUntilCleared(t *testing.T) {
 	}
 	if !reflect.DeepEqual(st.Unsent, want) {
 		t.Errorf("Unsent = %+v, want both transitions kept for the next mail attempt: %+v", st.Unsent, want)
+	}
+}
+
+func TestApplyFlappingLineDoesNotMailEveryRound(t *testing.T) {
+	targets := []Target{{ID: 1, Name: "tokyo", Host: "a.example", Port: 443}}
+	var st State
+	sent := 0
+	for i, v := range []Verdict{OK, Down, Down, OK, Down, OK, Down, OK, Down, OK} {
+		st = st.Apply(targets, round(map[int64]Verdict{1: v}), 2, t0.Add(time.Duration(i)*time.Hour))
+		sent += len(st.Unsent)
+		st.Unsent = nil
+	}
+	if sent != 1 {
+		t.Errorf("a line flapping every round after going down sent %d alerts, want only the first", sent)
+	}
+	if st.Targets[1].Verdict != Down {
+		t.Errorf("verdict = %q, want down: recovery never held for two rounds", st.Targets[1].Verdict)
 	}
 }
 
@@ -162,5 +186,23 @@ func TestAlertMail(t *testing.T) {
 	subject, _ = AlertMail([]Change{{Name: "a", Host: "h", Port: 1, From: IPBlocked, To: OK}})
 	if want := "Mintyx：线路已恢复 / lines reachable again"; subject != want {
 		t.Errorf("recovery subject = %q, want %q", subject, want)
+	}
+}
+
+func TestApplyKeepsRotationCursorAndSkippedLines(t *testing.T) {
+	targets := []Target{{ID: 1, Host: "a.example", Port: 443}, {ID: 2, Host: "a.example", Port: 8443}}
+	st := State{}.Apply(targets, round(map[int64]Verdict{1: OK, 2: Down}), 1, t0)
+	// A capped round left line 2 out: it keeps its verdict and last result.
+	st = st.Apply(targets, Round{Results: map[int64]Observation{1: {Verdict: OK}}, Err: ErrTooManyTargets, Next: 7}, 1, t0)
+	if st.Cursor != 7 {
+		t.Errorf("Cursor = %d, want the round's Next 7", st.Cursor)
+	}
+	if got := st.Targets[2]; got.Verdict != Down || got.Last != Down {
+		t.Errorf("skipped line = %+v, want its earlier down kept", got)
+	}
+	// A rate-limited round measured little or nothing, so it must not move the rotation on.
+	st = st.Apply(targets, Round{Results: map[int64]Observation{}, Err: &RateLimitError{Reset: time.Minute}, Next: 9}, 1, t0)
+	if st.Cursor != 7 {
+		t.Errorf("Cursor = %d after a rate-limited round, want 7 kept", st.Cursor)
 	}
 }

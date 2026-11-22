@@ -27,11 +27,26 @@ const (
 	StartTLS Security = "starttls"
 	// TLS speaks TLS from the first byte (usually port 465).
 	TLS Security = "tls"
-	// None sends everything, including the password, unencrypted.
+	// None sends everything unencrypted. Signing in that way is refused except to this machine
+	// (see PlainSignInAllowed), so it suits only servers that take mail without an account.
 	None Security = "none"
 )
 
 func (s Security) Valid() bool { return s == StartTLS || s == TLS || s == None }
+
+// PlainSignInAllowed reports whether a username and password may be sent to host over an
+// unencrypted connection. Like net/smtp's own PLAIN auth, it allows that only to this machine,
+// where the password never crosses a network.
+func PlainSignInAllowed(host string) bool {
+	switch strings.Trim(host, "[]") {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
+}
+
+// ErrPlainSignIn is returned for a sign-in over Security None to a host other than this machine.
+var ErrPlainSignIn = errors.New("notify: signing in needs an encrypted connection; choose STARTTLS or TLS, or leave the username empty")
 
 type Server struct {
 	Host     string
@@ -66,6 +81,9 @@ func Send(ctx context.Context, srv Server, msg Message) error {
 	}
 	if !srv.Security.Valid() {
 		return fmt.Errorf("notify: unknown security mode %q", srv.Security)
+	}
+	if srv.Security == None && srv.Username != "" && !PlainSignInAllowed(srv.Host) {
+		return ErrPlainSignIn
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
@@ -151,7 +169,7 @@ func chooseAuth(c *smtp.Client, srv Server, host string) (smtp.Auth, error) {
 type loginAuth struct{ username, password string }
 
 func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
-	if !server.TLS && server.Name != "localhost" && server.Name != "127.0.0.1" && server.Name != "::1" {
+	if !server.TLS && !PlainSignInAllowed(server.Name) {
 		return "", nil, errors.New("unencrypted connection")
 	}
 	return "LOGIN", nil, nil

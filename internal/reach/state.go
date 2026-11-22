@@ -13,7 +13,7 @@ type TargetState struct {
 	// Verdict is the confirmed state, "" until the first conclusive round.
 	Verdict Verdict   `json:"verdict"`
 	Since   time.Time `json:"since"`
-	// Pending is a bad verdict still waiting for Streak to reach the confirmation count.
+	// Pending is a new verdict still waiting for Streak to reach the confirmation count.
 	Pending Verdict `json:"pending,omitempty"`
 	Streak  int     `json:"streak,omitempty"`
 	// Last is the latest round's own verdict, confirmed or not.
@@ -35,7 +35,9 @@ type Change struct {
 type State struct {
 	LastCheckAt time.Time `json:"lastCheckAt"`
 	// RetryAt is set after a rate-limit refusal: no round before it.
-	RetryAt time.Time             `json:"retryAt"`
+	RetryAt time.Time `json:"retryAt"`
+	// Cursor is where the next round's rotation starts when not every line fits in one round.
+	Cursor  int                   `json:"cursor,omitempty"`
 	Targets map[int64]TargetState `json:"targets"`
 	// Unsent holds alerts whose email has not gone out yet, so a mail failure does not lose them.
 	Unsent []Change `json:"unsent,omitempty"`
@@ -43,8 +45,11 @@ type State struct {
 
 const maxUnsent = 50
 
-// advance folds one observation in. Recovery counts at once; trouble must repeat confirm rounds
-// in a row, and a round without data neither counts toward that nor interrupts it.
+// advance folds one observation in. Any change of verdict, trouble and recovery alike, must
+// repeat confirm rounds in a row, so a line flapping between bad and ok does not mail on every
+// round; bad rounds of different kinds count together and the latest kind wins. The only change
+// taken at once is a first-ever ok, which is not news. A round without data neither counts
+// toward a change nor interrupts it.
 func (s TargetState) advance(o Observation, confirm int, now time.Time) TargetState {
 	s.Last, s.China, s.Control = o.Verdict, o.China, o.Control
 	switch {
@@ -53,8 +58,9 @@ func (s TargetState) advance(o Observation, confirm int, now time.Time) TargetSt
 	case o.Verdict == s.Verdict:
 		s.Pending, s.Streak = "", 0
 		return s
-	case o.Verdict.Bad():
-		if !s.Pending.Bad() {
+	case s.Verdict == "" && o.Verdict == OK:
+	default:
+		if s.Pending == "" || s.Pending.Bad() != o.Verdict.Bad() {
 			s.Streak = 0
 		}
 		s.Pending = o.Verdict
@@ -75,10 +81,12 @@ func alertWorthy(from, to Verdict) bool {
 // Apply returns the state after a round. Lines that no longer exist are forgotten, and lines
 // the round did not cover (absent from r.Results) keep what they had.
 func (st State) Apply(targets []Target, r Round, confirm int, now time.Time) State {
-	next := State{LastCheckAt: now, Targets: map[int64]TargetState{}, Unsent: st.Unsent}
+	next := State{LastCheckAt: now, Targets: map[int64]TargetState{}, Unsent: st.Unsent, Cursor: r.Next}
 	var limited *RateLimitError
 	if errors.As(r.Err, &limited) {
 		next.RetryAt = now.Add(limited.Reset)
+		// The refusal stopped the round partway: start the same lines again next time.
+		next.Cursor = st.Cursor
 	}
 	for _, t := range targets {
 		prev := st.Targets[t.ID]

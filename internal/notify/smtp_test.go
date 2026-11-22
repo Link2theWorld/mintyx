@@ -168,6 +168,7 @@ func TestSendRejectsBadInput(t *testing.T) {
 		{"header injection through the sender", func(_ *Server, m *Message) { m.From = "a@example.com\r\nBcc: x@example.com" }, "notify: sender address:"},
 		{"empty recipient", func(_ *Server, m *Message) { m.To = "" }, "notify: recipient address:"},
 		{"unknown security mode", func(s *Server, _ *Message) { s.Security = "ssl" }, `notify: unknown security mode "ssl"`},
+		{"sign-in without encryption to another host", func(s *Server, _ *Message) { s.Host, s.Username = "192.0.2.1", "u" }, ErrPlainSignIn.Error()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			target, msg := srv.target(None), testMessage

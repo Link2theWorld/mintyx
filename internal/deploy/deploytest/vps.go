@@ -147,6 +147,19 @@ func (v *VPS) File(path string) ([]byte, bool) {
 	return b, ok
 }
 
+// TempUploads lists the temporary upload files still on the server.
+func (v *VPS) TempUploads() []string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	var out []string
+	for path := range v.files {
+		if strings.HasPrefix(path, "/tmp/mintyx-upload.") {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
 // Ran returns the scripts executed so far, oldest first.
 func (v *VPS) Ran() []Ran {
 	v.mu.Lock()
@@ -233,6 +246,11 @@ func (v *VPS) exec(e *sshtest.Exec) int {
 		}
 	case cmd == "sh -s":
 		return v.script(e, in, root)
+	case strings.HasPrefix(cmd, "rm -f '/tmp/mintyx-upload."):
+		v.mu.Lock()
+		delete(v.files, strings.Trim(strings.TrimPrefix(cmd, "rm -f "), "'"))
+		v.mu.Unlock()
+		return 0
 	case strings.Contains(cmd, "mktemp /tmp/mintyx-upload."):
 		data, _ := io.ReadAll(in)
 		v.mu.Lock()

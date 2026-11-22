@@ -120,6 +120,11 @@ type Server struct {
 	pinger reach.Pinger
 	// reachRunning admits one round at a time, whether the loop or the admin started it.
 	reachRunning atomic.Bool
+
+	// life is cancelled by Close. Work that outlives the request that started it runs under it,
+	// so it still stops at shutdown.
+	life     context.Context
+	stopLife context.CancelFunc
 }
 
 func New(cfg Config) (*Server, error) {
@@ -158,9 +163,14 @@ func New(cfg Config) (*Server, error) {
 		s.reserved[p] = true
 	}
 	s.startedAt = s.now()
+	s.life, s.stopLife = context.WithCancel(context.Background())
 	s.routes()
 	return s, nil
 }
+
+// Close stops work that requests started but do not wait for, such as a manual reachability
+// round whose browser tab was closed. Call it before shutting the HTTP server down.
+func (s *Server) Close() { s.stopLife() }
 
 func (s *Server) routes() {
 	m := http.NewServeMux()

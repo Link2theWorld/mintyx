@@ -184,6 +184,8 @@ func validateSMTP(in reachSMTPDTO) error {
 		return invalid("smtp.port", "SMTP port must be between 1 and 65535")
 	case !notify.Security(in.Security).Valid():
 		return invalid("smtp.security", `security must be "starttls", "tls" or "none"`)
+	case in.Host != "" && notify.Security(in.Security) == notify.None && in.Username != "" && !notify.PlainSignInAllowed(in.Host):
+		return invalid("smtp.security", "signing in needs encryption: choose STARTTLS or TLS, or leave the username empty")
 	}
 	if in.From != "" || in.Host != "" {
 		if _, err := mail.ParseAddress(in.From); err != nil || len(in.From) > reachMaxFieldLen {
@@ -454,7 +456,7 @@ func (s *Server) runReachRound(ctx context.Context) error {
 	parent := ctx
 	ctx, cancel := context.WithTimeout(parent, reachRoundTimeout)
 	defer cancel()
-	round := reach.RunRound(ctx, s.pinger, targets)
+	round := reach.RunRound(ctx, s.pinger, targets, rec.State.Cursor)
 	if err := parent.Err(); err != nil {
 		// Shutting down mid-round: half a round's "unknown" is not worth recording.
 		return err
@@ -502,8 +504,11 @@ func (s *Server) postReachCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusTooManyRequests, codeRateLimited, "checked moments ago; wait a minute before checking again", "")
 		return
 	}
-	// A closed browser tab must not abandon a round halfway through its measurements.
-	err = s.runReachRound(context.WithoutCancel(r.Context()))
+	// A closed browser tab must not abandon a round halfway through its measurements,
+	// but shutting the panel down must.
+	ctx, cancel := context.WithCancel(s.life)
+	defer cancel()
+	err = s.runReachRound(ctx)
 	switch {
 	case errors.Is(err, errReachBusy), errors.Is(err, errReachDisabled), errors.Is(err, errReachNoTarget):
 		writeErr(w, http.StatusConflict, codeConflict, err.Error(), "")

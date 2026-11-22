@@ -19,6 +19,7 @@ const (
 )
 
 // ErrTooManyTargets marks a round that left some lines unmeasured to stay inside the rate limit.
+// Which lines are left out rotates from round to round, so each is still checked in turn.
 var ErrTooManyTargets = errors.New("reach: more lines than one round can measure")
 
 // Target is one enabled line and the address its clients dial.
@@ -45,9 +46,12 @@ type Observation struct {
 }
 
 type Round struct {
+	// Results has one entry per target the round measured; a target left out by the cap is absent.
 	Results map[int64]Observation
-	// Err is why some results are Unknown; a *RateLimitError takes precedence.
+	// Err is why some results are Unknown or absent; a *RateLimitError takes precedence.
 	Err error
+	// Next is where the following round's rotation starts, for RunRound's start argument.
+	Next int
 }
 
 type measurementKey struct {
@@ -75,6 +79,34 @@ func plan(targets []Target) []measurementKey {
 	return keys
 }
 
+// choose caps a round at MaxMeasurements. Every host's ping is kept, since each port's verdict
+// leans on it, and the port measurements that fit are taken in turn starting at start. next is
+// where the following round should start, so lines cut this time come first then.
+func choose(keys []measurementKey, start int) (chosen []measurementKey, next int, cut bool) {
+	if len(keys) <= MaxMeasurements {
+		return keys, 0, false
+	}
+	var pings, ports []measurementKey
+	for _, k := range keys {
+		if k.port == 0 {
+			pings = append(pings, k)
+		} else {
+			ports = append(ports, k)
+		}
+	}
+	if len(pings) >= MaxMeasurements {
+		// So many hosts that their pings alone overflow: rotate through everything.
+		pings, ports = nil, keys
+	}
+	start = max(start, 0) % len(ports)
+	room := MaxMeasurements - len(pings)
+	chosen = pings
+	for i := range room {
+		chosen = append(chosen, ports[(start+i)%len(ports)])
+	}
+	return chosen, (start + room) % len(ports), true
+}
+
 // Cost is how many of the hourly tests one round over targets spends.
 func Cost(targets []Target) int {
 	return min(len(plan(targets)), MaxMeasurements) * ProbesPerMeasurement()
@@ -86,13 +118,25 @@ func (t tallies) channel() Channel {
 	return Channel{China: t.china.Reach(), Control: t.control.Reach()}
 }
 
-// RunRound measures every target once. The first measurement picks the probes and the rest
+// RunRound measures every target once, or as many as MaxMeasurements allows, rotating from
+// start (the previous round's Next). The first measurement picks the probes and the rest
 // reuse them, so "ping answers but the port does not" compares like with like.
-func RunRound(ctx context.Context, p Pinger, targets []Target) Round {
-	keys := plan(targets)
+func RunRound(ctx context.Context, p Pinger, targets []Target, start int) Round {
+	all := plan(targets)
+	keys, next, cut := choose(all, start)
 	var roundErr error
-	if len(keys) > MaxMeasurements {
-		keys, roundErr = keys[:MaxMeasurements], ErrTooManyTargets
+	if cut {
+		roundErr = ErrTooManyTargets
+	}
+	planned := map[measurementKey]bool{}
+	for _, k := range keys {
+		planned[k] = true
+	}
+	skipped := map[string]bool{}
+	for _, k := range all {
+		if !planned[k] {
+			skipped[k.host] = true
+		}
 	}
 
 	var (
@@ -153,7 +197,7 @@ func RunRound(ctx context.Context, p Pinger, targets []Target) Round {
 	}
 	wg.Wait()
 
-	out := Round{Results: map[int64]Observation{}, Err: roundErr}
+	out := Round{Results: map[int64]Observation{}, Err: roundErr, Next: next}
 	switch {
 	case limited != nil:
 		out.Err = limited
@@ -164,16 +208,21 @@ func RunRound(ctx context.Context, p Pinger, targets []Target) Round {
 	}
 	for _, t := range targets {
 		host := strings.ToLower(t.Host)
-		ev := Evidence{ICMP: measured[measurementKey{host, 0}].channel(), TCP: map[int]Channel{}}
+		ev := Evidence{ICMP: measured[measurementKey{host, 0}].channel(), TCP: map[int]Channel{}, Partial: skipped[host]}
 		for k, m := range measured {
 			if k.host == host && k.port != 0 {
 				ev.TCP[k.port] = m.channel()
 			}
 		}
-		shown, port := measured[measurementKey{host, t.Port}], t.Port
+		key := measurementKey{host, t.Port}
 		if t.IPOnly {
-			shown, port = measured[measurementKey{host, 0}], 0
+			key = measurementKey{host, 0}
 		}
+		if !planned[key] {
+			// Left out by the cap: no news, so the line keeps what the last round said.
+			continue
+		}
+		shown, port := measured[key], key.port
 		out.Results[t.ID] = Observation{Verdict: Judge(ev, port), China: shown.china, Control: shown.control}
 	}
 	return out

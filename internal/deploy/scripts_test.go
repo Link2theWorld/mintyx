@@ -265,6 +265,60 @@ func TestAuthorizedKeysScripts(t *testing.T) {
 	if want := "ssh-ed25519 AAAAexisting someone@laptop\n"; string(got) != want {
 		t.Fatalf("after removing:\n%q\nwant\n%q", got, want)
 	}
+	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o600 {
+		t.Errorf("authorized_keys mode %v after removing, want 600", fi.Mode().Perm())
+	}
+
+	// Removing the only line leaves grep nothing to print (exit 1), which is not an error.
+	os.WriteFile(file, []byte(key+"\n"), 0o600)
+	if r := runLocally(t, remove, "", "HOME="+home); r.code != 0 || r.value("key") != "removed" {
+		t.Fatalf("remove the only key: exit %d, %s", r.code, r.stderr)
+	}
+	if got, _ := os.ReadFile(file); len(got) != 0 {
+		t.Fatalf("after removing the only key: %q", got)
+	}
+
+	// A read error must fail the script and leave the file as it was, not empty it.
+	if os.Geteuid() == 0 {
+		return
+	}
+	const keep = "ssh-ed25519 AAAAexisting someone@laptop\n" + key + "\n"
+	os.WriteFile(file, []byte(keep), 0o600)
+	os.Chmod(file, 0o200)
+	r := runLocally(t, remove, "", "HOME="+home)
+	os.Chmod(file, 0o600)
+	if r.code == 0 || r.value("key") == "removed" {
+		t.Fatalf("unreadable authorized_keys: exit %d stdout %q, want a failure", r.code, r.stdout)
+	}
+	if got, _ := os.ReadFile(file); string(got) != keep {
+		t.Fatalf("unreadable authorized_keys was changed to %q", got)
+	}
+	if left, _ := filepath.Glob(file + ".mintyx*"); len(left) != 0 {
+		t.Errorf("temporary copies left behind: %v", left)
+	}
+
+	// A symlinked authorized_keys stays a link, and the key comes out of the file it points to.
+	real := filepath.Join(t.TempDir(), "managed_keys")
+	os.WriteFile(real, []byte(keep), 0o640)
+	os.Remove(file)
+	if err := os.Symlink(real, file); err != nil {
+		t.Fatal(err)
+	}
+	if r := runLocally(t, remove, "", "HOME="+home); r.code != 0 {
+		t.Fatalf("remove through a symlink: exit %d, %s", r.code, r.stderr)
+	}
+	if fi, err := os.Lstat(file); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("authorized_keys is no longer a symlink: %v %v", fi, err)
+	}
+	if got, _ := os.ReadFile(real); string(got) != "ssh-ed25519 AAAAexisting someone@laptop\n" {
+		t.Fatalf("linked file after removing: %q", got)
+	}
+	if fi, _ := os.Stat(real); fi.Mode().Perm() != 0o640 {
+		t.Errorf("linked file mode %v, want its own 640 kept", fi.Mode().Perm())
+	}
+	if left, _ := filepath.Glob(file + ".mintyx*"); len(left) != 0 {
+		t.Errorf("temporary copies left behind: %v", left)
+	}
 }
 
 func TestKeyLoginScripts(t *testing.T) {

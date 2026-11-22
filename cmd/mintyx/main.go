@@ -115,6 +115,7 @@ func run() error {
 		return err
 	case <-ctx.Done():
 	}
+	srv.Close()
 	shutdownCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stop()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {

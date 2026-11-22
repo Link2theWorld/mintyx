@@ -358,8 +358,10 @@ const TEXT = {
     e_auth: "服务器拒绝了登录：用户名、密码或私钥不对。",
     e_unreachable: "连不上这台服务器。请检查 IP、SSH 端口，以及服务器是否已经开机。",
     e_host_key_changed: "这台服务器的身份指纹和上次不一样。",
-    e_hkc_body: "如果你刚刚重装过系统，这是正常的，可以忘记旧指纹后重连。否则请不要继续：可能有人在中间拦截连接。",
-    e_hkc_known: "上次记住的：", e_hkc_presented: "这次看到的：", forgetHost: "忘记旧指纹并重新连接",
+    e_hkc_body: "如果你刚刚重装过系统，这是正常的，可以忘记旧指纹，核对新指纹后再重新连接。否则请不要继续：可能有人在中间拦截连接。",
+    e_hkc_known: "上次记住的：", e_hkc_presented: "这次看到的：", forgetHost: "忘记旧指纹",
+    e_host_forgotten: "旧指纹已删除，还没有重新连接。",
+    e_hf_body: "请先在服务器商的控制台里核对新指纹是否和下面这个一致。确认无误后重新输入密码，再点“连接”。",
     e_needs_root: "登录成功，但这个用户没有 root 权限。请用 root 登录，或填写正确的 sudo 密码。",
     e_passphrase_required: "这把私钥有口令保护，请填写口令。", e_passphrase_wrong: "私钥口令不对。",
     e_bad_key: "无法识别这段私钥。请粘贴完整内容，包括开头和结尾两行。",
@@ -420,8 +422,10 @@ const TEXT = {
     e_auth: "The server refused the login: wrong user name, password or key.",
     e_unreachable: "Cannot reach the server. Check the IP, the SSH port, and that the server is running.",
     e_host_key_changed: "This server's identity is not the one remembered from last time.",
-    e_hkc_body: "If you have just reinstalled the system this is expected: forget the old fingerprint and reconnect. Otherwise stop here, someone may be intercepting the connection.",
-    e_hkc_known: "Remembered: ", e_hkc_presented: "Seen now: ", forgetHost: "Forget the old fingerprint and reconnect",
+    e_hkc_body: "If you have just reinstalled the system this is expected: forget the old fingerprint, check the new one, and connect again. Otherwise stop here, someone may be intercepting the connection.",
+    e_hkc_known: "Remembered: ", e_hkc_presented: "Seen now: ", forgetHost: "Forget the old fingerprint",
+    e_host_forgotten: "The old fingerprint is forgotten. Nothing has been sent yet.",
+    e_hf_body: "First check in your provider's console that the server's fingerprint matches the one below. If it does, type the password again and click “Connect”.",
     e_needs_root: "Logged in, but this user has no root rights. Log in as root or give the correct sudo password.",
     e_passphrase_required: "This key is protected by a passphrase. Enter it.", e_passphrase_wrong: "Wrong passphrase for this key.",
     e_bad_key: "This does not look like a private key. Paste all of it, including the first and last lines.",
@@ -532,6 +536,7 @@ function renderConnectError() {
   const err = lastConnectError;
   for (const id of ["host", "port", "password", "privateKey", "passphrase"]) $(id).removeAttribute("aria-invalid");
   if (!err) { box.hidden = true; return; }
+  box.className = err.code === "host_forgotten" ? "note warn" : "note err";
   if (err.field && $(err.field)) $(err.field).setAttribute("aria-invalid", "true");
   const detail = ["unreachable", "needs_root", "error", "invalid"].includes(err.code);
   showError(box, err, detail);
@@ -539,7 +544,13 @@ function renderConnectError() {
     box.append(
       el("span", { text: t("e_hkc_body") }),
       el("span", { class: "mono", text: t("e_hkc_known") + (err.known || "") + "\n" + t("e_hkc_presented") + (err.presented || "") }),
-      el("button", { class: "btn small danger", type: "button", text: t("forgetHost"), onclick: forgetAndReconnect }),
+      el("button", { class: "btn small danger", type: "button", text: t("forgetHost"), onclick: forgetHost }),
+    );
+  }
+  if (err.code === "host_forgotten") {
+    box.append(
+      el("span", { text: t("e_hf_body") }),
+      el("span", { class: "mono", text: t("e_hkc_presented") + (err.presented || "") }),
     );
   }
 }
@@ -577,11 +588,19 @@ async function connect(input) {
   await refresh();
 }
 
-async function forgetAndReconnect() {
+/* A changed host key may mean someone is in the middle, so forgetting it does not reconnect:
+   the password is only sent again after the user has compared the new fingerprint and typed
+   the password once more. */
+async function forgetHost() {
   if (!lastInput) return;
+  const presented = lastConnectError && lastConnectError.presented;
   const res = await api("POST", "/api/forget-host", { host: lastInput.host, port: lastInput.port });
   if (!res.ok) { lastConnectError = res.error; renderConnectError(); return; }
-  await connect(lastInput);
+  for (const id of ["password", "sudoPassword"]) $(id).value = "";
+  lastInput = null;
+  lastConnectError = { code: "host_forgotten", presented };
+  renderConnectError();
+  $(authMode === "key" ? "sudoPassword" : "password").focus();
 }
 
 function renderRegions() {

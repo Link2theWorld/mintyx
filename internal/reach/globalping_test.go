@@ -199,15 +199,15 @@ func TestPingSurvivesPollThrottling(t *testing.T) {
 	}
 }
 
-func TestPingRetriesADroppedConnectionOnce(t *testing.T) {
+func TestPingRetriesOnlyPollsAfterADroppedConnection(t *testing.T) {
 	api := &fakeAPI{polls: []string{finishedBody}}
 	inner := api.handler(t)
 	var mu sync.Mutex
-	drops := 1
+	drops := map[string]int{}
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		drop := drops > 0
-		drops--
+		drop := drops[r.Method] > 0
+		drops[r.Method]--
 		mu.Unlock()
 		if drop {
 			conn, _, err := w.(http.Hijacker).Hijack()
@@ -220,17 +220,37 @@ func TestPingRetriesADroppedConnectionOnce(t *testing.T) {
 		}
 		inner.ServeHTTP(w, r)
 	}))
+	setDrops := func(get, post int) {
+		mu.Lock()
+		drops = map[string]int{http.MethodGet: get, http.MethodPost: post}
+		mu.Unlock()
+	}
+
+	setDrops(1, 0)
 	if _, err := c.Ping(context.Background(), PingRequest{Host: "203.0.113.9"}); err != nil {
-		t.Fatalf("one dropped connection failed the measurement: %v", err)
+		t.Fatalf("one dropped poll failed the measurement: %v", err)
 	}
 	if len(api.created) != 1 {
 		t.Errorf("created %d measurements, want 1", len(api.created))
 	}
 
-	mu.Lock()
-	drops = 2
-	mu.Unlock()
+	setDrops(100, 0)
 	if _, err := c.Ping(context.Background(), PingRequest{Host: "203.0.113.9"}); err == nil {
-		t.Error("two dropped connections in a row must surface as an error, not retry forever")
+		t.Error("polls that keep dropping must surface as an error, not retry forever")
+	}
+
+	// The server may already have created a measurement when the answer to a POST is lost.
+	api.mu.Lock()
+	before := len(api.created)
+	api.mu.Unlock()
+	setDrops(0, 1)
+	if _, err := c.Ping(context.Background(), PingRequest{Host: "203.0.113.9"}); err == nil {
+		t.Error("a dropped create succeeded; it should fail rather than be sent again")
+	}
+	mu.Lock()
+	posts := drops[http.MethodPost]
+	mu.Unlock()
+	if posts != 0 || len(api.created) != before {
+		t.Errorf("create was sent again after its connection dropped (%d extra)", -posts)
 	}
 }

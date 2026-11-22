@@ -19,11 +19,11 @@ export const verdictColor: Record<ReachVerdict, "success" | "error" | "warning" 
   unknown: "default",
 };
 
-const isBad = (v: ReachVerdict | "") => v === "port_blocked" || v === "ip_blocked" || v === "down";
-
-/** A bad latest round that the confirmed verdict does not reflect yet. */
+/** A latest round, trouble or recovery, that the confirmed verdict does not reflect yet. */
 export function pendingResult(t: ReachTarget): ReachVerdict | null {
-  return t.lastResult !== "" && isBad(t.lastResult) && t.lastResult !== t.verdict ? t.lastResult : null;
+  const last = t.lastResult;
+  if (last === "" || last === "unknown") return null;
+  return last !== t.verdict ? last : null;
 }
 
 /** The sentence under a line telling the owner what the verdict means and what to do, if anything. */

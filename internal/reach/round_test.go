@@ -75,7 +75,7 @@ func TestRunRoundJudgesEachLine(t *testing.T) {
 		{ID: 4, Host: "b.example", Port: 443},
 		{ID: 5, Host: "c.example", Port: 443},
 	}
-	r := RunRound(context.Background(), p, targets)
+	r := RunRound(context.Background(), p, targets, 0)
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
@@ -107,7 +107,7 @@ func TestRunRoundJudgesEachLine(t *testing.T) {
 func TestRunRoundRateLimitStopsAndReportsUnknown(t *testing.T) {
 	p := &scriptedPinger{errs: map[string]error{"a.example:0": &RateLimitError{Reset: time.Minute}}}
 	targets := []Target{{ID: 1, Host: "a.example", Port: 443}, {ID: 2, Host: "a.example", Port: 8443}}
-	r := RunRound(context.Background(), p, targets)
+	r := RunRound(context.Background(), p, targets, 0)
 	var rl *RateLimitError
 	if !errors.As(r.Err, &rl) || rl.Reset != time.Minute {
 		t.Fatalf("Err = %v, want the rate limit with its reset", r.Err)
@@ -126,7 +126,7 @@ func TestRunRoundSurvivesOneFailedMeasurement(t *testing.T) {
 		errs:    map[string]error{"a.example:0": boom},
 		answers: map[string][]ProbeResult{"a.example:443": probes(5, 3)},
 	}
-	r := RunRound(context.Background(), p, []Target{{ID: 1, Host: "a.example", Port: 443}})
+	r := RunRound(context.Background(), p, []Target{{ID: 1, Host: "a.example", Port: 443}}, 0)
 	if !errors.Is(r.Err, boom) {
 		t.Errorf("Err = %v, want %v", r.Err, boom)
 	}
@@ -138,7 +138,7 @@ func TestRunRoundSurvivesOneFailedMeasurement(t *testing.T) {
 	}
 }
 
-func TestRunRoundCapsMeasurements(t *testing.T) {
+func TestRunRoundCapsAndRotatesMeasurements(t *testing.T) {
 	p := &scriptedPinger{answers: map[string][]ProbeResult{}}
 	var targets []Target
 	for i := range MaxMeasurements + 3 {
@@ -147,23 +147,80 @@ func TestRunRoundCapsMeasurements(t *testing.T) {
 		p.answers[fmt.Sprintf("a.example:%d", port)] = probes(5, 3)
 	}
 	p.answers["a.example:0"] = probes(5, 3)
-	r := RunRound(context.Background(), p, targets)
-	if !errors.Is(r.Err, ErrTooManyTargets) {
-		t.Errorf("Err = %v, want ErrTooManyTargets", r.Err)
+
+	measured := func(r Round) []int64 {
+		var ids []int64
+		for id, o := range r.Results {
+			if o.Verdict != OK {
+				t.Errorf("line %d: verdict %q, want ok", id, o.Verdict)
+			}
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		return ids
 	}
-	if len(p.calls) != MaxMeasurements {
-		t.Errorf("made %d measurements, want the cap %d", len(p.calls), MaxMeasurements)
+	seen := map[int64]int{}
+	start := 0
+	// The ping takes one slot, leaving 11 for 15 ports.
+	for i, want := range [][]int64{
+		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+		{1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15},
+		{8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3},
+	} {
+		p.calls = nil
+		r := RunRound(context.Background(), p, targets, start)
+		if !errors.Is(r.Err, ErrTooManyTargets) {
+			t.Errorf("round %d: Err = %v, want ErrTooManyTargets", i, r.Err)
+		}
+		if len(p.calls) != MaxMeasurements {
+			t.Errorf("round %d: made %d measurements, want the cap %d", i, len(p.calls), MaxMeasurements)
+		}
+		if p.calls[0] != (PingRequest{Host: "a.example"}) {
+			t.Errorf("round %d: first measurement %+v, want the host ping every round", i, p.calls[0])
+		}
+		sort.Slice(want, func(a, b int) bool { return want[a] < want[b] })
+		if got := measured(r); !reflect.DeepEqual(got, want) {
+			t.Errorf("round %d: measured lines %v, want %v", i, got, want)
+		}
+		for id := range r.Results {
+			seen[id]++
+		}
+		start = r.Next
 	}
-	var unknown []int64
-	for id, o := range r.Results {
-		if o.Verdict == Unknown {
-			unknown = append(unknown, id)
+	for _, tg := range targets {
+		if seen[tg.ID] < 2 {
+			t.Errorf("line %d measured %d times in 3 rounds; rotation should reach every line twice", tg.ID, seen[tg.ID])
 		}
 	}
-	sort.Slice(unknown, func(i, j int) bool { return unknown[i] < unknown[j] })
-	// The ping takes one slot, so ports 12..15 of 15 fall outside the cap.
-	if want := []int64{12, 13, 14, 15}; !reflect.DeepEqual(unknown, want) {
-		t.Errorf("unmeasured lines = %v, want %v", unknown, want)
+}
+
+func TestRunRoundCappedDoesNotCondemnTheAddress(t *testing.T) {
+	// China cannot ping the host, and every port the round reaches is closed to China, but a
+	// port the cap leaves out might still be open: the measured ports are only port-blocked.
+	blocked := probes(0, 3)
+	p := &scriptedPinger{answers: map[string][]ProbeResult{"a.example:0": blocked}}
+	var targets []Target
+	for i := range MaxMeasurements + 3 {
+		port := 1000 + i
+		targets = append(targets, Target{ID: int64(i + 1), Host: "a.example", Port: port})
+		p.answers[fmt.Sprintf("a.example:%d", port)] = blocked
+	}
+	r := RunRound(context.Background(), p, targets, 0)
+	if len(r.Results) == 0 {
+		t.Fatal("no results")
+	}
+	for id, o := range r.Results {
+		if o.Verdict != PortBlocked {
+			t.Errorf("line %d: verdict %q, want port_blocked while some ports went unmeasured", id, o.Verdict)
+		}
+	}
+
+	// The same host measured in full is judged blocked as a whole.
+	r = RunRound(context.Background(), p, targets[:3], 0)
+	for id, o := range r.Results {
+		if o.Verdict != IPBlocked {
+			t.Errorf("full round, line %d: verdict %q, want ip_blocked", id, o.Verdict)
+		}
 	}
 }
 

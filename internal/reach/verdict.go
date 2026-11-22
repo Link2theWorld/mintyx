@@ -80,6 +80,9 @@ type Channel struct {
 type Evidence struct {
 	ICMP Channel
 	TCP  map[int]Channel
+	// Partial: the round skipped some of this host's ports to stay under its cap. Any one of
+	// them might still get through from China, so the address cannot be called blocked.
+	Partial bool
 }
 
 // channels lists ping first, then every TCP port.
@@ -108,7 +111,7 @@ func (ev Evidence) chinaReachesIP() Reach {
 			inconclusive = true
 		}
 	}
-	if !inconclusive && (pingClosed || closed >= 2) {
+	if !inconclusive && !ev.Partial && (pingClosed || closed >= 2) {
 		return No
 	}
 	return Unsure

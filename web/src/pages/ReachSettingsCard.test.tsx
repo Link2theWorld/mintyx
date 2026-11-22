@@ -5,7 +5,7 @@ import type { ReachConfig } from "../api/schemas";
 import { LANG_KEY } from "../i18n/I18nProvider";
 import { fakeApi } from "../test/fakeApi";
 import { renderWithProviders } from "../test/render";
-import { ReachSettingsCard, needsPasswordAgain, reachFieldPath } from "./ReachSettingsCard";
+import { ReachSettingsCard, needsPasswordAgain, plainSignIn, reachFieldPath } from "./ReachSettingsCard";
 
 const config = (smtp: Partial<ReachConfig["smtp"]> = {}): ReachConfig => ({
   enabled: false, intervalMinutes: 30, confirmRounds: 2,
@@ -109,6 +109,19 @@ describe("needsPasswordAgain", () => {
     ["no stored password to misuse", { ...saved, passwordSet: false }, { ...next, host: "smtp.other.example" }, false],
   ] as const)("%s", (_, a, b, want) => {
     expect(needsPasswordAgain(a, b)).toBe(want);
+  });
+});
+
+describe("plainSignIn", () => {
+  const next = { host: "smtp.example.com", port: 25, security: "none" as const, username: "me", password: "", from: "", to: "" };
+  it.each([
+    ["sign-in without encryption to a remote server", next, true],
+    ["no sign-in", { ...next, username: "" }, false],
+    ["encrypted", { ...next, security: "starttls" as const }, false],
+    ["a mail server on this machine", { ...next, host: "127.0.0.1" }, false],
+    ["host cleared to turn mail off", { ...next, host: "" }, false],
+  ] as const)("%s", (_, b, want) => {
+    expect(plainSignIn(b)).toBe(want);
   });
 });
 

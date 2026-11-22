@@ -215,8 +215,11 @@ func (c *Client) fetch(ctx context.Context, id string) (measurement, error) {
 	return m, c.do(ctx, http.MethodGet, "/v1/measurements/"+id, nil, http.StatusOK, &m)
 }
 
-// do sends one request. A connection that dies before any answer is tried once more: idle
-// connections and middleboxes drop often enough that one failure should not void a round.
+// do sends one request. A GET whose connection dies before any answer is tried once more: idle
+// connections and middleboxes drop often enough that one failure should not void a round. A POST
+// is not, since the server may have created the measurement before the answer was lost, and a
+// second one would spend the rate-limited allowance twice. (net/http still retries a request it
+// knows never left this machine.)
 func (c *Client) do(ctx context.Context, method, path string, body []byte, want int, into any) error {
 	var resp *http.Response
 	for attempt := 0; ; attempt++ {
@@ -232,7 +235,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, want 
 		if resp, err = c.HTTP.Do(hr); err == nil {
 			break
 		}
-		if attempt == 1 || ctx.Err() != nil {
+		if attempt == 1 || method != http.MethodGet || ctx.Err() != nil {
 			return fmt.Errorf("globalping: %w", err)
 		}
 	}

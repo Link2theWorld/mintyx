@@ -32,7 +32,8 @@ describe("pendingResult", () => {
     ["confirmed trouble is not pending", target({ verdict: "ip_blocked", lastResult: "ip_blocked" }), null],
     ["a round without data is not pending trouble", target({ verdict: "ok", lastResult: "unknown" }), null],
     ["never checked", target({ verdict: "unknown", lastResult: "" }), null],
-    ["recovery is confirmed at once, so ok is never pending", target({ verdict: "down", lastResult: "ok" }), null],
+    ["recovery waits for confirmation too", target({ verdict: "down", lastResult: "ok" }), "ok"],
+    ["confirmed ok is not pending", target(), null],
   ] as const)("%s", (_, t, want) => {
     expect(pendingResult(t)).toBe(want);
   });

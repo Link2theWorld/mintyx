@@ -38,6 +38,14 @@ export function needsPasswordAgain(saved: ReachConfig["smtp"], next: ReachSmtpIn
     (next.host !== saved.host || next.username !== saved.username);
 }
 
+/** Signing in is refused over an unencrypted connection except to this machine; catch it before the server does.
+ *  An empty host turns mail off, so nothing is checked then. */
+export function plainSignIn(next: ReachSmtpInput): boolean {
+  if (next.host === "") return false;
+  const local = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(next.host);
+  return next.security === "none" && next.username !== "" && !local;
+}
+
 function ReachForm({ config }: { config: ReachConfig }) {
   const { t } = useI18n();
   const { message } = App.useApp();
@@ -49,6 +57,10 @@ function ReachForm({ config }: { config: ReachConfig }) {
 
   const passwordPath: FormPath = ["smtp", "password"];
   const blockedByPassword = (smtp: ReachSmtpInput): boolean => {
+    if (plainSignIn(smtp)) {
+      form.setFields([{ name: ["smtp", "security"], errors: [t("reach.settings.security.noneSignIn")] }]);
+      return true;
+    }
     if (!needsPasswordAgain(config.smtp, smtp)) return false;
     form.setFields([{ name: passwordPath, errors: [t("reach.settings.passwordAgain")] }]);
     return true;

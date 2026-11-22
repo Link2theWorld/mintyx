@@ -182,12 +182,28 @@ fi
 echo "key=added"
 `
 
+// grep exits 1 when no line is left, which is fine; anything above that is a read error, and
+// the file must not be replaced by a partial copy then. A regular file is swapped in whole with
+// mv. A symlink (say, to a file that configuration management keeps) is written through instead,
+// like the add script appends through it, so the link, the file it points to and that file's
+// owner and mode all stay as they were.
 const authorizedKeysRemoveBody = `
+umask 077
 f="$HOME/.ssh/authorized_keys"
 if [ -f "$f" ]; then
-  grep -vxF -- "$KEY" "$f" > "$f.mintyx" || true
-  cat "$f.mintyx" > "$f"
-  rm -f "$f.mintyx"
+  tmp=$(mktemp "$HOME/.ssh/authorized_keys.mintyx.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
+  rc=0
+  grep -vxF -- "$KEY" "$f" > "$tmp" || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    echo "could not read $f; left it unchanged" >&2
+    exit 1
+  fi
+  if [ -L "$f" ]; then
+    cat "$tmp" > "$f"
+  else
+    mv -f "$tmp" "$f"
+  fi
 fi
 echo "key=removed"
 `

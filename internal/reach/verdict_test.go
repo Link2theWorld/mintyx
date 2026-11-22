@@ -90,6 +90,11 @@ func TestJudge(t *testing.T) {
 		{"udp line: ping and every tcp port dead everywhere", Evidence{ICMP: dead, TCP: tcp(map[int]Channel{443: dead})}, portNone, Down},
 		{"udp line: tcp dead but ping answers from china", Evidence{ICMP: open, TCP: tcp(map[int]Channel{443: dead})}, portNone, OK},
 		{"udp line: nothing measured", Evidence{ICMP: silent}, portNone, Unknown},
+
+		{"partial round: a skipped port may be open, so blame the port", Evidence{ICMP: blocked, TCP: tcp(map[int]Channel{443: blocked}), Partial: true}, port443, PortBlocked},
+		{"partial round: two closed ports are still not the whole address", Evidence{ICMP: dead, TCP: tcp(map[int]Channel{443: blocked, 8443: blocked}), Partial: true}, port443, PortBlocked},
+		{"partial round: an open channel still proves the address open", Evidence{ICMP: blocked, TCP: tcp(map[int]Channel{443: open}), Partial: true}, portNone, OK},
+		{"partial round: udp line cannot be called blocked", Evidence{ICMP: blocked, Partial: true}, portNone, Unknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := Judge(tc.ev, tc.port); got != tc.want {

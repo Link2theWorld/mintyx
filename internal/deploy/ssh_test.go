@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -297,6 +298,39 @@ func TestUpload(t *testing.T) {
 		}
 		if _, ok := v.File("/usr/local/bin/mintyx"); ok {
 			t.Fatal("a damaged upload was installed")
+		}
+	})
+
+	t.Run("the temporary copy is removed when sudo fails before the install script runs", func(t *testing.T) {
+		v := deploytest.New(t)
+		c := dialVPS(t, v, testKnownHosts(t))
+		if err := c.EnsureRoot(testContext(t)); err != nil {
+			t.Fatal(err)
+		}
+		v.Set(func(v *deploytest.VPS) { v.SudoPassword = "changed meanwhile" })
+		if err := c.Upload(testContext(t), bytes.NewReader(payload), "/usr/local/bin/mintyx", "0755"); err == nil {
+			t.Fatal("upload succeeded although sudo refused the install")
+		}
+		if v.Uploads() != 1 {
+			t.Fatalf("uploads = %d, want the copy to have reached the server", v.Uploads())
+		}
+		if left := v.TempUploads(); len(left) != 0 {
+			t.Fatalf("temporary uploads left behind: %v", left)
+		}
+	})
+
+	t.Run("the temporary copy is removed when the data source fails", func(t *testing.T) {
+		v := deploytest.New(t)
+		c := dialVPS(t, v, testKnownHosts(t))
+		broken := io.MultiReader(bytes.NewReader(payload[:1000]), iotest.ErrReader(errors.New("disk read error")))
+		if err := c.Upload(testContext(t), broken, "/usr/local/bin/mintyx", "0755"); err == nil {
+			t.Fatal("upload of a failing reader succeeded")
+		}
+		if left := v.TempUploads(); len(left) != 0 {
+			t.Fatalf("temporary uploads left behind: %v", left)
+		}
+		if _, ok := v.File("/usr/local/bin/mintyx"); ok {
+			t.Fatal("a truncated upload was installed")
 		}
 	})
 }

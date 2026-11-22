@@ -26,13 +26,23 @@ type fakePinger struct {
 	mu     sync.Mutex
 	calls  []reach.PingRequest
 	answer func(reach.PingRequest) ([]reach.ProbeResult, error)
+	// hang, when set, makes Ping wait for its context instead of answering.
+	hang chan struct{}
 }
 
-func (p *fakePinger) Ping(_ context.Context, req reach.PingRequest) (reach.PingResult, error) {
+func (p *fakePinger) Ping(ctx context.Context, req reach.PingRequest) (reach.PingResult, error) {
 	p.mu.Lock()
 	p.calls = append(p.calls, req)
-	answer := p.answer
+	answer, hang := p.answer, p.hang
 	p.mu.Unlock()
+	if hang != nil {
+		select {
+		case hang <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return reach.PingResult{}, ctx.Err()
+	}
 	probes, err := answer(req)
 	return reach.PingResult{ID: "anchor", Probes: probes}, err
 }
@@ -232,6 +242,7 @@ func TestReachConfigValidation(t *testing.T) {
 		{"smtp.host", func(_, smtp map[string]any) { smtp["host"] = "smtp.example.com:587" }},
 		{"smtp.port", func(_, smtp map[string]any) { smtp["port"] = 0 }},
 		{"smtp.security", func(_, smtp map[string]any) { smtp["security"] = "ssl" }},
+		{"smtp.security", func(_, smtp map[string]any) { smtp["security"] = "none" }},
 		{"smtp.from", func(_, smtp map[string]any) { smtp["from"] = "" }},
 		{"smtp.from", func(_, smtp map[string]any) { smtp["from"] = "a@example.com, b@example.com" }},
 		{"smtp.to", func(_, smtp map[string]any) { smtp["to"] = "not an address" }},
@@ -242,6 +253,15 @@ func TestReachConfigValidation(t *testing.T) {
 		tc.mod(body, body["smtp"].(map[string]any))
 		expectError(t, f.do("PUT", "/api/reach/config", body, withCookie(c)), http.StatusBadRequest, codeInvalid, tc.field)
 	}
+	// Signing in without encryption is fine to a mail server on this machine.
+	local := valid()
+	local["smtp"].(map[string]any)["host"], local["smtp"].(map[string]any)["security"] = "127.0.0.1", "none"
+	expectStatus(t, f.do("PUT", "/api/reach/config", local, withCookie(c)), http.StatusOK)
+	// Clearing the host turns mail off even with an unencrypted sign-in left in the other fields.
+	cleared := valid()
+	cleared["smtp"].(map[string]any)["host"], cleared["smtp"].(map[string]any)["security"] = "", "none"
+	cleared["smtp"].(map[string]any)["from"], cleared["smtp"].(map[string]any)["to"] = "", ""
+	expectStatus(t, f.do("PUT", "/api/reach/config", cleared, withCookie(c)), http.StatusOK)
 	// Mail is optional: without a host nothing about it is required.
 	off := valid()
 	off["smtp"] = map[string]any{"host": "", "port": 587, "security": "starttls"}
@@ -418,6 +438,30 @@ func TestReachCheckNowReportsVerdictsAndThrottles(t *testing.T) {
 	}
 }
 
+func TestManualReachCheckStopsOnClose(t *testing.T) {
+	f := newReachFixture(t)
+	f.configure(true, nil)
+	hang := make(chan struct{}, 1)
+	f.pinger.mu.Lock()
+	f.pinger.hang = hang
+	f.pinger.mu.Unlock()
+
+	done := make(chan int, 1)
+	go func() { done <- f.do("POST", "/api/reach/check", nil, withCookie(f.c)).Code }()
+	<-hang
+	select {
+	case code := <-done:
+		t.Fatalf("check returned %d while its measurement was still running", code)
+	case <-time.After(50 * time.Millisecond):
+	}
+	f.srv.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a manual check kept running after the server was closed")
+	}
+}
+
 func TestReachLoopConfirmsThenMailsOncePerTransition(t *testing.T) {
 	f := newReachFixture(t)
 	sink := newMailSink(t)
@@ -435,6 +479,7 @@ func TestReachLoopConfirmsThenMailsOncePerTransition(t *testing.T) {
 		{port443Shut, want{reach.OK, reach.PortBlocked, 0}},
 		{port443Shut, want{reach.PortBlocked, reach.PortBlocked, 1}},
 		{port443Shut, want{reach.PortBlocked, reach.PortBlocked, 1}},
+		{allFine, want{reach.PortBlocked, reach.OK, 1}},
 		{allFine, want{reach.OK, reach.OK, 2}},
 		{allFine, want{reach.OK, reach.OK, 2}},
 	} {
