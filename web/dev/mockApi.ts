@@ -174,7 +174,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (path === "/api/lines" && method === "POST") {
     const b = await readBody(req);
     if (state.lines.some((l) => l.port === b.port)) return fail(res, 409, "conflict", "port already used", "port");
-    state.lines.push({ ...b, id: state.nextId++, createdAt: new Date().toISOString() });
+    // exitId is read-only (API.md): a new line leaves directly until PUT /api/routing says otherwise.
+    state.lines.push({ ...b, id: state.nextId++, exitId: null, createdAt: new Date().toISOString() });
     return send(res, 201, state.lines[state.lines.length - 1]);
   }
   const lineMatch = /^\/api\/lines\/(\d+)$/.exec(path);
@@ -185,7 +186,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (method === "DELETE") { state.lines.splice(i, 1); return send(res, 204); }
     const b = await readBody(req);
     if (state.lines.some((l) => l.port === b.port && l.id !== id)) return fail(res, 409, "conflict", "port already used", "port");
-    state.lines[i] = { ...state.lines[i], ...b };
+    state.lines[i] = { ...state.lines[i], ...b, exitId: state.lines[i]?.exitId ?? null };
     return send(res, 200, state.lines[i]);
   }
 
