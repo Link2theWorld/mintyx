@@ -111,6 +111,13 @@ func (s *Server) audit(r *http.Request, action, target, detail string) {
 	}
 }
 
+// Sync applies the store to the engine. A failure is retried on the next runner tick.
+func (s *Server) Sync(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.syncLocked(ctx)
+}
+
 // syncLocked applies the store to the engine; callers hold s.mu. A failure is retried on the next tick.
 func (s *Server) syncLocked(ctx context.Context) error {
 	err := s.eng.Sync(ctx)

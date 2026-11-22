@@ -188,7 +188,8 @@ func (s *Server) buildReality(l *model.Line, r *realityDTO, prev *model.Line) er
 	if r == nil {
 		return invalid("reality", "reality parameters are required")
 	}
-	p := model.RealityParams{PublicKey: strings.TrimSpace(r.PublicKey), ShortID: strings.TrimSpace(r.ShortID),
+	// Hex is case-insensitive, but the config builder only takes the lowercase form.
+	p := model.RealityParams{PublicKey: strings.TrimSpace(r.PublicKey), ShortID: strings.ToLower(strings.TrimSpace(r.ShortID)),
 		ServerName: strings.TrimSpace(r.ServerName), Target: strings.TrimSpace(r.Target)}
 	if !validHostname(p.ServerName) {
 		return invalid("reality.serverName", "server name is required")

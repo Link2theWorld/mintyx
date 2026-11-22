@@ -85,8 +85,8 @@ func run() error {
 	defer cancel()
 
 	// The panel must come up even when Xray cannot, so the admin can see why.
-	if err := eng.Sync(ctx); err != nil {
-		logger.Error("Xray did not start; the panel is running without it", "error", err)
+	if err := srv.Sync(ctx); err != nil {
+		logger.Error("Xray did not start; the panel is running without it and will retry", "error", err)
 	}
 	runner := srv.NewRunner(eng.Traffic, *tick)
 	runner.Start(ctx)
