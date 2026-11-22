@@ -12,10 +12,11 @@ import (
 // fakeHost answers the commands the manager runs from a small model of a Debian box.
 type fakeHost struct {
 	mu        sync.Mutex
-	installed map[string]string // package -> version
-	leftover  map[string]bool   // package removed, config files still there
-	active    map[string]bool   // unit -> running
-	fail      map[string]error  // "apt-get install" -> error
+	installed map[string]string   // package -> version
+	leftover  map[string]bool     // package removed, config files still there
+	deps      map[string][]string // package -> what apt installs with it, and removes it with
+	active    map[string]bool     // unit -> running
+	fail      map[string]error    // "apt-get install" -> error
 	ran       []string
 	gate      chan struct{} // when set, apt-get install waits for it
 }
@@ -64,10 +65,19 @@ func (h *fakeHost) exec(_ context.Context, name string, args ...string) ([]byte,
 	case name == "apt-get" && slices.Contains(args, "install"):
 		for _, p := range args[slices.Index(args, "-y")+1:] {
 			h.installed[p] = "1.0-1"
+			for _, d := range h.deps[p] {
+				h.installed[d] = "1.0-1"
+			}
 		}
 	case name == "apt-get" && slices.Contains(args, "remove"):
 		for _, p := range args[slices.Index(args, "-y")+1:] {
 			delete(h.installed, p)
+			// apt takes away whatever depends on a package it removes, never what it depends on.
+			for dependent, needs := range h.deps {
+				if slices.Contains(needs, p) {
+					delete(h.installed, dependent)
+				}
+			}
 		}
 	case name == "systemctl" && (args[0] == "enable" || args[0] == "disable"):
 		for _, u := range args[2:] {
@@ -142,6 +152,32 @@ func TestInstallThenRemove(t *testing.T) {
 	m.Wait()
 	if s := stateOf(t, m, "docker"); s.Installed || s.Service != ServiceNone {
 		t.Fatalf("after remove: %+v", s)
+	}
+}
+
+// Before Debian 13 and Ubuntu 24.04 "nginx" is an empty package that only depends on the real
+// ones. Removing it alone left the server installed while the page said it was gone.
+func TestRemoveTakesTheProgramBehindAMetapackage(t *testing.T) {
+	h := newFakeHost()
+	h.deps = map[string][]string{"nginx": {"nginx-core", "nginx-common"}, "nginx-core": {"nginx-common"}}
+	m := newManager(h)
+	ctx := context.Background()
+	if err := m.Begin(ctx, "nginx", ActionInstall, nil); err != nil {
+		t.Fatal(err)
+	}
+	m.Wait()
+	if len(h.installed) != 3 {
+		t.Fatalf("after install: %v, want nginx, nginx-core and nginx-common", h.installed)
+	}
+	if err := m.Begin(ctx, "nginx", ActionRemove, nil); err != nil {
+		t.Fatal(err)
+	}
+	m.Wait()
+	if j := m.Job(); j.State != JobDone {
+		t.Fatalf("remove job = %+v", j)
+	}
+	if len(h.installed) != 0 {
+		t.Fatalf("after remove these are still installed: %v", h.installed)
 	}
 }
 
@@ -260,7 +296,7 @@ func TestCatalogIsWellFormed(t *testing.T) {
 		}
 		seen[a.ID] = true
 		// These strings become arguments of commands run as root.
-		for _, s := range slices.Concat(a.Packages, a.Units) {
+		for _, s := range slices.Concat(a.Packages, a.RemoveToo, a.Units) {
 			if strings.HasPrefix(s, "-") || strings.ContainsAny(s, " \t\n;&|$`'\"\\/") {
 				t.Errorf("%s: unsafe package or unit name %q", a.ID, s)
 			}

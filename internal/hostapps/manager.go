@@ -230,7 +230,7 @@ func plan(a App, action string) []step {
 		if len(a.Units) > 0 {
 			steps = append(steps, step{argv: disable, optional: true})
 		}
-		return append(steps, step{argv: apt(append([]string{"remove", "-y"}, a.Packages...)...)})
+		return append(steps, step{argv: apt(append(append([]string{"remove", "-y"}, a.Packages...), a.RemoveToo...)...)})
 	case ActionStart:
 		return []step{{argv: enable}}
 	case ActionStop:

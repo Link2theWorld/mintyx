@@ -8,6 +8,9 @@ type App struct {
 	Category string
 	// Packages are the Debian/Ubuntu package names; the first one decides whether the app is installed.
 	Packages []string
+	// RemoveToo are packages a removal names as well. Where Packages[0] is an empty package that
+	// only depends on the real ones, removing it alone would leave the program installed.
+	RemoveToo []string
 	// Units are the systemd units that make up the service, main one first. Empty for a plain tool.
 	Units []string
 	// Ports are the TCP ports the service binds as soon as it is installed.
@@ -23,7 +26,9 @@ const (
 // Catalog is deliberately closed: every command the panel runs as root is built from these
 // literals, never from request data.
 var Catalog = []App{
-	{ID: "nginx", Category: CategoryWeb, Packages: []string{"nginx"}, Units: []string{"nginx.service"}, Ports: []int{80}},
+	// Before Debian 13 and Ubuntu 24.04 "nginx" only depends on one of nginx-core, -full, -light
+	// or -extras. All of them need nginx-common, so removing that takes whichever is there.
+	{ID: "nginx", Category: CategoryWeb, Packages: []string{"nginx"}, RemoveToo: []string{"nginx-common"}, Units: []string{"nginx.service"}, Ports: []int{80}},
 	{ID: "caddy", Category: CategoryWeb, Packages: []string{"caddy"}, Units: []string{"caddy.service"}, Ports: []int{80}},
 	// Stopping docker.service alone leaves the socket unit to start it again on the next client call.
 	{ID: "docker", Category: CategoryContainer, Packages: []string{"docker.io"}, Units: []string{"docker.service", "docker.socket"}},
