@@ -15,10 +15,11 @@ body { -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transpa
 
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
 }
 .tabbar-item {
+  min-width: 0;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   min-height: 48px; justify-content: center; border-radius: 12px;
   text-decoration: none; font-size: 12px;
@@ -52,4 +53,12 @@ body { -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transpa
 
 @media (max-width: 767.98px) {
   .hide-on-narrow { display: none; }
+}
+
+.app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.app-grid .ant-card-body { height: 100%; }
+.app-log {
+  margin: 8px 0 0; padding: 8px 12px; max-height: 280px; overflow: auto;
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all;
+  border-radius: 8px; background: rgba(127, 127, 127, 0.12);
 }

@@ -10,6 +10,7 @@ import type { Session } from "./api/schemas";
 import { QueryState } from "./components/QueryState";
 import { I18nProvider, useI18n } from "./i18n/I18nProvider";
 import { Shell } from "./layout/Shell";
+import { AppsPage } from "./pages/AppsPage";
 import { AuditPage } from "./pages/AuditPage";
 import { LoginPage, SetupPage } from "./pages/AuthPages";
 import { ClientsPage } from "./pages/ClientsPage";
@@ -85,6 +86,7 @@ export function AppRoutes() {
           <Route index element={<OverviewPage />} />
           <Route path="lines" element={<LinesPage />} />
           <Route path="clients" element={<ClientsPage />} />
+          <Route path="apps" element={<AppsPage />} />
           <Route path="audit" element={<AuditPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

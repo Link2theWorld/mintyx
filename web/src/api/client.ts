@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import {
+  appsSchema,
   auditResponseSchema,
   clientsResponseSchema,
   engineLogsSchema,
@@ -15,6 +16,7 @@ import {
   settingsSchema,
   shareSchema,
   statusSchema,
+  type AppAction,
   type ClientInput,
   type LineDraft,
   type Protocol,
@@ -173,6 +175,9 @@ export const api = {
   saveSettings: (s: Settings) => request("PUT", "/api/settings", null, s),
 
   hostSsh: () => request("GET", "/api/host/ssh", hostSshSchema),
+  apps: () => request("GET", "/api/apps", appsSchema),
+  // Only accepts the job; its progress and outcome come from apps().
+  appAction: (id: string, action: AppAction) => request("POST", `/api/apps/${id}/${action}`, null),
   reachConfig: () => request("GET", "/api/reach/config", reachConfigSchema),
   saveReachConfig: (c: ReachConfigInput) => request("PUT", "/api/reach/config", reachConfigSchema, c),
   reachStatus: () => request("GET", "/api/reach/status", reachStatusSchema),

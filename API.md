@@ -13,7 +13,7 @@
   否则面板认为自己是 HTTP，浏览器发来的 `https://` Origin 会被判为跨源。
 - 错误响应：`{"error": {"code": "<机器可读>", "message": "<英文说明>", "field": "<可选>"}}`。
   code 取值：`unauthorized`(401) `forbidden`(403) `not_found`(404) `conflict`(409，
-  `field` 为 `port`/`name`/`secret`/`subToken`) `invalid`(400，`field` 为出错字段)
+  `field` 为 `port`/`name`/`secret`/`subToken`，应用接口另有 `job`/`state`/`host`) `invalid`(400，`field` 为出错字段)
   `rate_limited`(429) `engine`(502，配置已保存但引擎应用失败) `internal`(500)。
 - 改动线路或客户后，后端重建 Xray 配置并应用。保存成功但引擎应用失败时返回
   502 `engine`，数据保持已保存状态。
@@ -205,3 +205,43 @@ Globalping 对匿名调用按来源 IP 限制每小时 250 次测试，一次测
 `PasswordAuthentication` 为 yes，或 `KbdInteractiveAuthentication` 为 yes 且启用了 PAM，
 即为 `on`。不是 Linux、找不到 sshd、无权执行或输出无法识别时为 `unknown`。
 结果缓存一分钟；sshd 的原始输出不会返回给前端。前端只在 `on` 时提醒改用密钥登录。
+
+## 应用
+
+在面板所在的服务器上安装、卸载、启停内置清单里的软件。清单固定在后端，接口不接受
+清单之外的标识。
+
+`GET /api/apps` →
+
+```jsonc
+{
+  "supported": true,
+  "reason": "",          // 不支持时的原因：os（不是 Linux）| root（面板不是 root）| systemd | apt
+  "apps": [{
+    "id": "nginx", "category": "web",   // web | container | tools
+    "ports": [80],                       // 装好后立即占用的 TCP 端口
+    "service": true,                     // 有后台服务，可以启动、停止、重启
+    "installed": false, "version": "",
+    "status": ""                         // running | stopped | failed；未安装或没有服务时为 ""
+  }],
+  "job": null            // 正在执行或最近一次结束的操作
+  // {"app","action","state": "running" | "done" | "failed","startedAt","endedAt": string | null,
+  //  "error": "失败的那一步","log": ["命令及其输出，最多 200 行"]}
+}
+```
+
+`supported` 为 false 时 `apps` 仍列出清单，但不检查主机，各项都是未安装。
+
+`POST /api/apps/{id}/{action}`，`action` 为 `install` `remove` `start` `stop` `restart`。
+接受后立即返回 202，操作在后台执行，进度与结果从 `GET /api/apps` 的 `job` 读取。
+
+| 情况 | 响应 |
+|---|---|
+| 应用或动作不存在 | 404 `not_found` |
+| 另一个操作还在执行 | 409 `conflict`，`field` 为 `job` |
+| 安装时所需端口已被占用 | 409 `conflict`，`field` 为 `port` |
+| 动作与当前状态不符（重复安装、卸载未安装的、启动没有服务的应用） | 409 `conflict`，`field` 为 `state` |
+| 这台服务器不能管理应用 | 409 `conflict`，`field` 为 `host` |
+
+`start` 执行 `systemctl enable --now`，`stop` 执行 `systemctl disable --now`。
+审计动作为 `app.<action>`，对象是应用标识；后台操作失败时再记一条 `app.<action>.fail`。

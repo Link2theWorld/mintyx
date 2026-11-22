@@ -135,6 +135,39 @@ export type Settings = z.infer<typeof settingsSchema>;
 
 export const hostSshSchema = z.object({ passwordLogin: z.enum(["on", "off", "unknown"]) });
 export type HostSsh = z.infer<typeof hostSshSchema>;
+
+export const appActions = ["install", "remove", "start", "stop", "restart"] as const;
+export type AppAction = (typeof appActions)[number];
+export const hostAppSchema = z.object({
+  id: z.string(),
+  category: z.string(),
+  ports: z.array(z.number().int()),
+  service: z.boolean(),
+  installed: z.boolean(),
+  version: z.string(),
+  // "" for a plain tool or an app that is not installed.
+  status: z.enum(["", "running", "stopped", "failed"]),
+});
+export type HostApp = z.infer<typeof hostAppSchema>;
+export const appJobSchema = z.object({
+  app: z.string(),
+  action: z.enum(appActions),
+  state: z.enum(["running", "done", "failed"]),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  error: z.string(),
+  log: z.array(z.string()),
+});
+export type AppJob = z.infer<typeof appJobSchema>;
+export const appsSchema = z.object({
+  supported: z.boolean(),
+  // Why not, when unsupported: "os" | "root" | "systemd" | "apt".
+  reason: z.string(),
+  apps: z.array(hostAppSchema),
+  job: appJobSchema.nullable(),
+});
+export type Apps = z.infer<typeof appsSchema>;
+
 export const reachSecurities = ["starttls", "tls", "none"] as const;
 export const reachSmtpSchema = z.object({
   host: z.string(),

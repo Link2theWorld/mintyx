@@ -53,6 +53,18 @@ const state = {
   }),
 };
 
+// In the mock, installing Caddy hits a taken port and installing iPerf3 fails, to show both paths.
+const hostApps = [
+  { id: "nginx", category: "web", ports: [80], service: true, installed: true, version: "1.26.3-3", status: "running" },
+  { id: "caddy", category: "web", ports: [80], service: true, installed: false, version: "", status: "" },
+  { id: "docker", category: "container", ports: [] as number[], service: true, installed: false, version: "", status: "" },
+  { id: "vnstat", category: "tools", ports: [] as number[], service: true, installed: true, version: "2.12-1", status: "stopped" },
+  { id: "iperf3", category: "tools", ports: [] as number[], service: false, installed: false, version: "", status: "" },
+  { id: "htop", category: "tools", ports: [] as number[], service: false, installed: true, version: "3.4.1-5", status: "" },
+];
+let appJob: { app: string; action: string; state: string; startedAt: string; endedAt: string | null; error: string; log: string[] } | null = null;
+const appsReply = () => ({ supported: true, reason: "", apps: hostApps, job: appJob });
+
 function send(res: ServerResponse, status: number, body?: unknown): void {
   res.statusCode = status;
   if (body !== undefined) res.setHeader("Content-Type", "application/json");
@@ -242,6 +254,32 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return send(res, 204);
   }
   if (path === "/api/host/ssh" && method === "GET") return send(res, 200, { passwordLogin: "on" });
+  if (path === "/api/apps" && method === "GET") return send(res, 200, appsReply());
+  const appMatch = /^\/api\/apps\/([a-z0-9]+)\/(install|remove|start|stop|restart)$/.exec(path);
+  if (appMatch && method === "POST") {
+    const app = hostApps.find((a) => a.id === appMatch[1]);
+    const action = appMatch[2] ?? "";
+    if (!app) return fail(res, 404, "not_found", "not found");
+    if (appJob?.state === "running") return fail(res, 409, "conflict", "another app job is still running", "job");
+    if (action === "install" && app.id === "caddy") return fail(res, 409, "conflict", "port 80 is already in use", "port");
+    const job = { app: app.id, action, state: "running", startedAt: new Date().toISOString(), endedAt: null as string | null, error: "", log: [] as string[] };
+    appJob = job;
+    setTimeout(() => {
+      job.endedAt = new Date().toISOString();
+      if (app.id === "iperf3" && action === "install") {
+        job.state = "failed";
+        job.error = "apt-get install: exit status 100";
+        job.log = ["$ apt-get install --no-remove -y iperf3", "E: Unable to locate package iperf3", "! exit status 100"];
+        return;
+      }
+      job.state = "done";
+      if (action === "install") Object.assign(app, { installed: true, version: "1.0-1", status: app.service ? "running" : "" });
+      if (action === "remove") Object.assign(app, { installed: false, version: "", status: "" });
+      if (action === "start" || action === "restart") app.status = "running";
+      if (action === "stop") app.status = "stopped";
+    }, 3000);
+    return send(res, 202);
+  }
   return fail(res, 404, "not_found", "no route");
 }
 

@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ysuhao/mintyx-next/internal/hostapps"
 	"github.com/ysuhao/mintyx-next/internal/store"
 )
 
@@ -110,6 +111,8 @@ func newFixture(t *testing.T, mod func(*Config)) *fixture {
 	t.Cleanup(func() { _ = st.Close() })
 	eng := &fakeEngine{}
 	cfg := Config{Store: st, Engine: eng, Keys: &fakeKeys{}, Static: testStatic, ReservedPorts: []int{2096},
+		// No test may reach the real package manager.
+		Apps: hostapps.New(hostapps.Options{Unsupported: func() string { return hostapps.ReasonOS }}),
 		CoverSite: func(_ context.Context, region string) string {
 			if region == "" {
 				return "www.campus.example"

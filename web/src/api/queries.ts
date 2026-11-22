@@ -12,6 +12,7 @@ export const keys = {
   audit: ["audit"] as const,
   settings: ["settings"] as const,
   hostSsh: ["host", "ssh"] as const,
+  apps: ["apps"] as const,
   reachConfig: ["reach", "config"] as const,
   reachStatus: ["reach", "status"] as const,
 };
@@ -30,6 +31,13 @@ export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: ap
 // sshd's configuration rarely changes; one look per visit is plenty.
 export const useHostSsh = (enabled: boolean) =>
   useQuery({ queryKey: keys.hostSsh, queryFn: () => api.hostSsh(), enabled, staleTime: 5 * 60_000, retry: false });
+// Polls quickly only while an install or other job is in flight.
+export const useApps = () =>
+  useQuery({
+    queryKey: keys.apps,
+    queryFn: api.apps,
+    refetchInterval: (q) => (q.state.data?.job?.state === "running" ? 2_000 : 30_000),
+  });
 export const useReachConfig = () => useQuery({ queryKey: keys.reachConfig, queryFn: api.reachConfig });
 export const useReachStatus = () => useQuery({ queryKey: keys.reachStatus, queryFn: api.reachStatus, refetchInterval: 30_000 });
 

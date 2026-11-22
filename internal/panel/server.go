@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ysuhao/mintyx-next/internal/hostapps"
 	"github.com/ysuhao/mintyx-next/internal/hostcheck"
 	"github.com/ysuhao/mintyx-next/internal/reach"
 	"github.com/ysuhao/mintyx-next/internal/store"
@@ -68,6 +69,8 @@ type Config struct {
 	CoverSite func(ctx context.Context, region string) string
 	// HostCheck answers GET /api/host/ssh; nil inspects the real sshd.
 	HostCheck *hostcheck.Checker
+	// Apps installs extra software on this server; nil manages the real host.
+	Apps *hostapps.Manager
 	// Reach runs the from-China reachability measurements; nil uses the public Globalping API.
 	Reach  reach.Pinger
 	Logger *slog.Logger
@@ -94,6 +97,7 @@ type Server struct {
 	reserved   map[int]bool
 	coverSite  func(context.Context, string) string
 	hostCheck  *hostcheck.Checker
+	apps       *hostapps.Manager
 	log        *slog.Logger
 	mux        *http.ServeMux
 	startedAt  time.Time
@@ -131,6 +135,7 @@ func New(cfg Config) (*Server, error) {
 		reserved:   map[int]bool{},
 		coverSite:  cfg.CoverSite,
 		hostCheck:  cfg.HostCheck,
+		apps:       cfg.Apps,
 		log:        cfg.Logger,
 		now:        func() time.Time { return time.Now().UTC() },
 		bcryptCost: bcrypt.DefaultCost,
@@ -145,6 +150,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if s.hostCheck == nil {
 		s.hostCheck = hostcheck.New(nil)
+	}
+	if s.apps == nil {
+		s.apps = hostapps.New(hostapps.Options{})
 	}
 	for _, p := range cfg.ReservedPorts {
 		s.reserved[p] = true
@@ -192,6 +200,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/settings", s.authed(s.getSettings))
 	m.HandleFunc("PUT /api/settings", s.authed(s.putSettings))
 	m.HandleFunc("GET /api/host/ssh", s.authed(s.getHostSSH))
+	m.HandleFunc("GET /api/apps", s.authed(s.listApps))
+	m.HandleFunc("POST /api/apps/{id}/{action}", s.authed(s.postAppAction))
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, codeNotFound, "no such endpoint", "")
