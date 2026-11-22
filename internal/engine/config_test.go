@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 // testPrivateKey is RFC 7748 §6.1 Alice's private key in base64url.

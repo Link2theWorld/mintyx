@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy"
-	"github.com/ysuhao/mintyx-next/internal/deploy/deploytest"
+	"github.com/Link2theWorld/mintyx/internal/deploy"
+	"github.com/Link2theWorld/mintyx/internal/deploy/deploytest"
 )
 
 // TestDemo serves the page against a pretend server, so every screen of it can be looked at

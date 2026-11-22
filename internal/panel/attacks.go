@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/attack"
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/rdap"
-	"github.com/ysuhao/mintyx-next/internal/store"
+	"github.com/Link2theWorld/mintyx/internal/attack"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/rdap"
+	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
 const (

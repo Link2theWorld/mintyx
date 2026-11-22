@@ -14,9 +14,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ysuhao/mintyx-next/internal/exitlink"
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/probe"
+	"github.com/Link2theWorld/mintyx/internal/exitlink"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/probe"
 )
 
 // exitSummary describes an exit without any of its credentials.

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 func TestDialAddressMatchesShareLink(t *testing.T) {

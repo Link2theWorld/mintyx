@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 // ssKeySize is the key size of each Shadowsocks 2022 cipher (SIP022); other ciphers are absent.

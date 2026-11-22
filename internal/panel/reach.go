@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/notify"
-	"github.com/ysuhao/mintyx-next/internal/reach"
-	"github.com/ysuhao/mintyx-next/internal/share"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/notify"
+	"github.com/Link2theWorld/mintyx/internal/reach"
+	"github.com/Link2theWorld/mintyx/internal/share"
 )
 
 const (

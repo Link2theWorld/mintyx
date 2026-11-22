@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/engine"
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/share"
+	"github.com/Link2theWorld/mintyx/internal/engine"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/share"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 func vlessExit(name string) *model.Exit {

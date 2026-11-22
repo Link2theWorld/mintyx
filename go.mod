@@ -1,4 +1,4 @@
-module github.com/ysuhao/mintyx-next
+module github.com/Link2theWorld/mintyx
 
 go 1.27
 

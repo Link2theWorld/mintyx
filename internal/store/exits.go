@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 // exitJSON is the stored params column; explicit tags keep the format stable if the model changes.

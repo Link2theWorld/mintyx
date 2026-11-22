@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 var t0 = time.Date(2026, 11, 22, 6, 24, 39, 0, time.UTC)

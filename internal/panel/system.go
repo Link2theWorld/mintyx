@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/quota"
+	"github.com/Link2theWorld/mintyx/internal/quota"
 )
 
 func (s *Server) getEngine(w http.ResponseWriter, r *http.Request) {

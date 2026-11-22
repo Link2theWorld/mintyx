@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 var attackT0 = time.Date(2026, 11, 20, 8, 0, 0, 0, time.UTC)

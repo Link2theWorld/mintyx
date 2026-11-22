@@ -8,9 +8,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/share"
-	"github.com/ysuhao/mintyx-next/internal/store"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/share"
+	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
 const (

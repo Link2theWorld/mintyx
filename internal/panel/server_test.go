@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 func TestRoutingAPIVersusSPA(t *testing.T) {

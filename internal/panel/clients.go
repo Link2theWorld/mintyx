@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/quota"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/quota"
 )
 
 // clientDTO deliberately leaves out Secret and SubToken; only the share endpoint reveals them.

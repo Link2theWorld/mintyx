@@ -15,8 +15,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/ysuhao/mintyx-next/internal/hostapps"
-	"github.com/ysuhao/mintyx-next/internal/store"
+	"github.com/Link2theWorld/mintyx/internal/hostapps"
+	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
 type fakeEngine struct {

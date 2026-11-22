@@ -19,8 +19,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy/deploytest"
-	"github.com/ysuhao/mintyx-next/internal/deploy/sshtest"
+	"github.com/Link2theWorld/mintyx/internal/deploy/deploytest"
+	"github.com/Link2theWorld/mintyx/internal/deploy/sshtest"
 )
 
 func TestDialTellsFailuresApart(t *testing.T) {

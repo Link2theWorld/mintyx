@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 // testPublicKey is RFC 7748 §6.1 Alice's public key in base64url.

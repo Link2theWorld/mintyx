@@ -13,7 +13,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy"
+	"github.com/Link2theWorld/mintyx/internal/deploy"
 )
 
 //go:embed all:bin

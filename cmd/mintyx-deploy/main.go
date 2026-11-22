@@ -18,9 +18,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy"
-	"github.com/ysuhao/mintyx-next/internal/deploy/localui"
-	"github.com/ysuhao/mintyx-next/internal/deploy/payload"
+	"github.com/Link2theWorld/mintyx/internal/deploy"
+	"github.com/Link2theWorld/mintyx/internal/deploy/localui"
+	"github.com/Link2theWorld/mintyx/internal/deploy/payload"
 )
 
 func main() {

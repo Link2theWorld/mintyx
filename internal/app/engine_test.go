@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/engine"
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/panel"
-	"github.com/ysuhao/mintyx-next/internal/store"
+	"github.com/Link2theWorld/mintyx/internal/engine"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/panel"
+	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
 type fakeProc struct {

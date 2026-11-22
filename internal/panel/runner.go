@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/quota"
+	"github.com/Link2theWorld/mintyx/internal/quota"
 )
 
 // Runner periodically records traffic, enforces quotas and expiry, and resyncs the engine.

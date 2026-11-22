@@ -23,9 +23,9 @@ import (
 
 	_ "embed"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy"
-	"github.com/ysuhao/mintyx-next/internal/hostcheck"
-	"github.com/ysuhao/mintyx-next/web"
+	"github.com/Link2theWorld/mintyx/internal/deploy"
+	"github.com/Link2theWorld/mintyx/internal/hostcheck"
+	"github.com/Link2theWorld/mintyx/web"
 )
 
 //go:embed page.html

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy/deploytest"
+	"github.com/Link2theWorld/mintyx/internal/deploy/deploytest"
 )
 
 func testContext(t *testing.T) context.Context {

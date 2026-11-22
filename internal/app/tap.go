@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/attack"
+	"github.com/Link2theWorld/mintyx/internal/attack"
 )
 
 // XrayTap is the supervisor's OnLine hook: every line goes to the attack collector, and the

@@ -19,13 +19,13 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/ysuhao/mintyx-next/internal/attack"
-	"github.com/ysuhao/mintyx-next/internal/hostapps"
-	"github.com/ysuhao/mintyx-next/internal/hostcheck"
-	"github.com/ysuhao/mintyx-next/internal/probe"
-	"github.com/ysuhao/mintyx-next/internal/rdap"
-	"github.com/ysuhao/mintyx-next/internal/reach"
-	"github.com/ysuhao/mintyx-next/internal/store"
+	"github.com/Link2theWorld/mintyx/internal/attack"
+	"github.com/Link2theWorld/mintyx/internal/hostapps"
+	"github.com/Link2theWorld/mintyx/internal/hostcheck"
+	"github.com/Link2theWorld/mintyx/internal/probe"
+	"github.com/Link2theWorld/mintyx/internal/rdap"
+	"github.com/Link2theWorld/mintyx/internal/reach"
+	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
 // Engine is what the panel needs from the Xray supervisor.

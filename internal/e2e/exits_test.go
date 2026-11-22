@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/engine"
-	"github.com/ysuhao/mintyx-next/internal/exitlink"
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/share"
+	"github.com/Link2theWorld/mintyx/internal/engine"
+	"github.com/Link2theWorld/mintyx/internal/exitlink"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/share"
 )
 
 // pinnedLink is the product's share link for l and c, with the self-signed certificate pinned

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 // Kind is what a source was seen doing. The values are stored and sent to the UI.

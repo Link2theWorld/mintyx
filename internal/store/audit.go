@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 // AppendAudit fills ID, and At when it is zero.

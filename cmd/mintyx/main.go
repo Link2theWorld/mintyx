@@ -19,13 +19,13 @@ import (
 	// Monthly quota days are read in an IANA zone; minimal server images may have no zoneinfo.
 	_ "time/tzdata"
 
-	"github.com/ysuhao/mintyx-next/internal/app"
-	"github.com/ysuhao/mintyx-next/internal/attack"
-	"github.com/ysuhao/mintyx-next/internal/engine"
-	"github.com/ysuhao/mintyx-next/internal/panel"
-	"github.com/ysuhao/mintyx-next/internal/probe"
-	"github.com/ysuhao/mintyx-next/internal/store"
-	"github.com/ysuhao/mintyx-next/web"
+	"github.com/Link2theWorld/mintyx/internal/app"
+	"github.com/Link2theWorld/mintyx/internal/attack"
+	"github.com/Link2theWorld/mintyx/internal/engine"
+	"github.com/Link2theWorld/mintyx/internal/panel"
+	"github.com/Link2theWorld/mintyx/internal/probe"
+	"github.com/Link2theWorld/mintyx/internal/store"
+	"github.com/Link2theWorld/mintyx/web"
 )
 
 func main() {

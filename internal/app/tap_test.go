@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/attack"
+	"github.com/Link2theWorld/mintyx/internal/attack"
 )
 
 func TestXrayTapFeedsTheCollectorAndHidesInfoLines(t *testing.T) {

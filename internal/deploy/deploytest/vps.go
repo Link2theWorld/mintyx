@@ -20,10 +20,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ysuhao/mintyx-next/internal/app"
-	"github.com/ysuhao/mintyx-next/internal/deploy/sshtest"
-	"github.com/ysuhao/mintyx-next/internal/panel"
-	"github.com/ysuhao/mintyx-next/internal/store"
+	"github.com/Link2theWorld/mintyx/internal/app"
+	"github.com/Link2theWorld/mintyx/internal/deploy/sshtest"
+	"github.com/Link2theWorld/mintyx/internal/panel"
+	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
 const (

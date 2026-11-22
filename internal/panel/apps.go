@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/hostapps"
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/hostapps"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 type appDTO struct {

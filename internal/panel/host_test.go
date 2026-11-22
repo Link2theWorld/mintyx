@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/hostcheck"
+	"github.com/Link2theWorld/mintyx/internal/hostcheck"
 )
 
 func TestHostSSH(t *testing.T) {

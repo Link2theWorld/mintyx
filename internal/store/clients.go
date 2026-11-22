@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 func nullableTime(t *time.Time) any {

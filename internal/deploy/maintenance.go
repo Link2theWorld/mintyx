@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/ysuhao/mintyx-next/internal/hostcheck"
+	"github.com/Link2theWorld/mintyx/internal/hostcheck"
 )
 
 // ErrNotDeployed means there is no Mintyx panel on the server to act on.

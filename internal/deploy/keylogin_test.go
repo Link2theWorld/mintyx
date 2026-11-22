@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy/deploytest"
+	"github.com/Link2theWorld/mintyx/internal/deploy/deploytest"
 )
 
 type keyLoginCase struct {

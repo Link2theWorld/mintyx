@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 func itoa(id int64) string { return strconv.FormatInt(id, 10) }

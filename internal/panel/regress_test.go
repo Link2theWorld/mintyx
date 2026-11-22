@@ -5,11 +5,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/model"
 	"net/http"
 	"testing"
 
-	"github.com/ysuhao/mintyx-next/internal/engine"
+	"github.com/Link2theWorld/mintyx/internal/engine"
 )
 
 type realKeys struct{ fakeKeys }

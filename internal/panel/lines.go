@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/probe"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/probe"
 )
 
 type realityDTO struct {

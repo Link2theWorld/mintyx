@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysuhao/mintyx-next/internal/attack"
-	"github.com/ysuhao/mintyx-next/internal/model"
-	"github.com/ysuhao/mintyx-next/internal/rdap"
+	"github.com/Link2theWorld/mintyx/internal/attack"
+	"github.com/Link2theWorld/mintyx/internal/model"
+	"github.com/Link2theWorld/mintyx/internal/rdap"
 )
 
 // fakeSSHLog plays the journal: each read hands out the queued messages once.

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/ysuhao/mintyx-next/internal/deploy"
+	"github.com/Link2theWorld/mintyx/internal/deploy"
 )
 
 func TestReadTellsAMissingPayloadApart(t *testing.T) {

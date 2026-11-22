@@ -1,6 +1,6 @@
 package share
 
-import "github.com/ysuhao/mintyx-next/internal/model"
+import "github.com/Link2theWorld/mintyx/internal/model"
 
 // DialAddress is the host and port a client's share link points at for this line, e.g. the
 // CDN edge on 443 for a plain XHTTP line. It fails for a line no link can be built for.
