@@ -68,7 +68,8 @@ func TestEveryScriptParses(t *testing.T) {
 		"xray-install": xrayInstallBody, "service": serviceBody, "service-log": serviceLogBody,
 		"firewall": firewallBody, "authorized-keys-add": authorizedKeysAddBody,
 		"authorized-keys-remove": authorizedKeysRemoveBody, "keylogin-apply": keyLoginApplyBody,
-		"keylogin-rollback": keyLoginRollbackBody,
+		"keylogin-rollback": keyLoginRollbackBody, "reset-password": resetPasswordBody,
+		"sshd-settings": sshdSettingsBody,
 	}
 	for name, body := range bodies {
 		cmd := exec.Command("sh", "-n")
@@ -401,6 +402,58 @@ esac
 			}
 		})
 	}
+}
+
+// A stand-in for the panel program's reset-password command, run through the real script.
+func TestResetPasswordScript(t *testing.T) {
+	requireSh(t)
+	run := func(t *testing.T, panel string, withDB bool) localRun {
+		t.Helper()
+		dir := t.TempDir()
+		bin := filepath.Join(dir, "mintyx")
+		data := filepath.Join(dir, "data")
+		if panel != "" {
+			if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+panel), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.MkdirAll(data, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if withDB {
+			if err := os.WriteFile(filepath.Join(data, "mintyx.db"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return runLocally(t, Script{Name: "reset-password", Body: resetPasswordBody, Vars: []Var{{"BIN", bin}, {"DATA", data}}}, "")
+	}
+
+	t.Run("reports the new password", func(t *testing.T) {
+		r := run(t, `[ "$1" = reset-password ] && [ "$2" = -data ] || exit 9
+echo "The admin password was reset." >&2
+printf 'username: admin\npassword: K7ZQ4M2XWQ3B6ZQ5RTEN4S7Y2A\n'
+`, true)
+		if r.code != 0 || r.value("user") != "admin" || r.value("password") != "K7ZQ4M2XWQ3B6ZQ5RTEN4S7Y2A" {
+			t.Fatalf("got code %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
+		}
+	})
+	t.Run("a missing panel is not an error of the panel", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			panel  string
+			withDB bool
+		}{{"no program", "", true}, {"no database", "exit 0\n", false}} {
+			if r := run(t, tc.panel, tc.withDB); r.code != 0 || r.value("problem") != "not-installed" {
+				t.Errorf("%s: code %d, stdout %q", tc.name, r.code, r.stdout)
+			}
+		}
+	})
+	t.Run("a failing panel program fails the script with its message", func(t *testing.T) {
+		r := run(t, "echo 'mintyx: the panel has no admin account yet' >&2\nexit 1\n", true)
+		if r.code == 0 || r.value("password") != "" || !strings.Contains(r.stderr, "no admin account") {
+			t.Fatalf("got code %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
+		}
+	})
 }
 
 // A file whose last line has no newline is common (hand-edited, or written by a provider's

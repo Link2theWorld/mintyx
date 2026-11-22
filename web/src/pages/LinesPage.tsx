@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import { keys, useLines } from "../api/queries";
 import { lineDraftSchema, regionSchema, type Line, type LineDraft, type Protocol, type Region } from "../api/schemas";
 import { PageHeader } from "../components/PageHeader";
+import { Ticket } from "../components/Paper";
 import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
 import { errorText, isEngineError } from "../lib/errors";
@@ -133,6 +134,15 @@ export function LinesPage() {
         }
       />
       <QueryState isPending={lines.isPending} error={lines.error} refetch={lines.refetch} />
+      {data.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <Ticket items={[
+            { label: t("lines.summary.total"), value: data.length },
+            { label: t("lines.summary.enabled"), value: data.filter((l) => l.enabled).length },
+            { label: t("lines.summary.chained"), value: data.filter((l) => l.exitId != null).length },
+          ]} />
+        </div>
+      )}
       {lines.data && data.length === 0 && <Card><Empty description={t("lines.empty")} /></Card>}
       {data.length > 0 && (mobile ? (
         <div className="card-list">

@@ -100,6 +100,9 @@ func mapErr(err error) error {
 		}
 		return &ConflictError{Field: field}
 	}
+	if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_CHECK) {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	return err
 }
 

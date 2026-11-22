@@ -24,7 +24,7 @@ describe("X-Mintyx header", () => {
   it("is sent on POST, PUT and DELETE", async () => {
     const calls = stubFetch(204, undefined);
     await api.disableClient(3);
-    await api.saveSettings({ publicHost: "h", subscriptionBaseUrl: "" });
+    await api.saveSettings({ publicHost: "h", subscriptionBaseUrl: "", timeZone: "Asia/Seoul", serverRegion: "" });
     await api.deleteLine(7);
     expect(calls.map((c) => [c.init.method, c.url, header(c, "X-Mintyx")])).toEqual([
       ["POST", "/api/clients/3/disable", "1"],
@@ -34,7 +34,7 @@ describe("X-Mintyx header", () => {
   });
 
   it("is not sent on GET", async () => {
-    const calls = stubFetch(200, { publicHost: "h", subscriptionBaseUrl: "" });
+    const calls = stubFetch(200, { publicHost: "h", subscriptionBaseUrl: "", timeZone: "Asia/Seoul", serverRegion: "" });
     await api.settings();
     expect(calls[0]?.init.method).toBe("GET");
     expect(header(calls[0], "X-Mintyx")).toBeUndefined();

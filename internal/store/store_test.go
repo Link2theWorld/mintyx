@@ -562,3 +562,53 @@ func TestOpenSetsPragmas(t *testing.T) {
 		t.Fatalf("pragmas journal_mode=%q foreign_keys=%d busy_timeout=%d", mode, fk, busy)
 	}
 }
+
+func TestMonthlyCycleFieldsAndStartCycle(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	oct := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	c := newClient("monthly")
+	c.QuotaResetDay, c.CycleStart = 1, &oct
+	if err := s.CreateClient(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddTraffic(ctx, map[int64]model.Traffic{c.ID: {Up: 5, Down: 7}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetClient(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.QuotaResetDay != 1 || got.CycleStart == nil || !got.CycleStart.Equal(oct) {
+		t.Fatalf("stored cycle = day %d from %v, want day 1 from %v", got.QuotaResetDay, got.CycleStart, oct)
+	}
+
+	nov := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	for i, want := range []bool{true, false} {
+		started, err := s.StartCycle(ctx, c.ID, nov, true)
+		if err != nil || started != want {
+			t.Fatalf("StartCycle #%d = %v, %v; want %v", i+1, started, err, want)
+		}
+		if i == 0 {
+			// Usage after the reset must survive the repeated call.
+			if err := s.AddTraffic(ctx, map[int64]model.Traffic{c.ID: {Down: 3}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	got, _ = s.GetClient(ctx, c.ID)
+	if got.UsedUp != 0 || got.UsedDown != 3 || !got.CycleStart.Equal(nov) {
+		t.Fatalf("after the reset = %d/%d from %v, want 0/3 from %v", got.UsedUp, got.UsedDown, got.CycleStart, nov)
+	}
+	if started, err := s.StartCycle(ctx, c.ID, oct, true); started || err != nil {
+		t.Fatalf("StartCycle with an older start = %v, %v; want ignored", started, err)
+	}
+
+	got.QuotaResetDay, got.CycleStart = 0, nil
+	if err := s.UpdateClient(ctx, &got); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s.GetClient(ctx, c.ID); again.QuotaResetDay != 0 || again.CycleStart != nil || again.UsedDown != 3 {
+		t.Fatalf("after turning the cycle off = %+v, want no cycle and usage kept", again)
+	}
+}

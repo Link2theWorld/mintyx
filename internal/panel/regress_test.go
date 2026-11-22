@@ -32,7 +32,7 @@ func TestUppercaseShortIDStillBuildsConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.BuildConfig(lines, nil, engine.Options{APIPort: 10085}); err != nil {
+	if _, err := engine.BuildConfig(lines, nil, nil, engine.Options{APIPort: 10085}); err != nil {
 		t.Fatalf("BuildConfig rejects a line the panel saved: %v", err)
 	}
 }

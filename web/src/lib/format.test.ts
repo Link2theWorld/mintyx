@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BYTES_PER_GB, MAX_QUOTA_GB, bytesToGb, daysUntil, formatBytes, gbToBytes } from "./format";
+import { BYTES_PER_GB, MAX_QUOTA_GB, bytesToGb, daysUntil, formatBytes, formatDateInZone, gbToBytes } from "./format";
 
 describe("formatBytes", () => {
   it.each([
@@ -49,5 +49,14 @@ describe("daysUntil", () => {
     expect(daysUntil(new Date(2026, 11, 21, 23, 59, 59).toISOString(), now)).toBe(30);
     expect(daysUntil(new Date(2026, 10, 21, 23, 59).toISOString(), now)).toBe(0);
     expect(daysUntil(new Date(2026, 10, 20, 23, 59).toISOString(), now)).toBe(-1);
+  });
+});
+
+describe("formatDateInZone", () => {
+  it("names the day in the given zone, not the browser's", () => {
+    // 15 June 00:00 in Seoul is still 14 June in UTC and Shanghai.
+    expect(formatDateInZone("2026-06-14T15:00:00Z", "Asia/Seoul")).toBe("2026-06-15");
+    expect(formatDateInZone("2026-06-14T15:00:00Z", "UTC")).toBe("2026-06-14");
+    expect(formatDateInZone("not a date", "UTC")).toBe("not a date");
   });
 });

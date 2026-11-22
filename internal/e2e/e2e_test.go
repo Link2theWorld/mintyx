@@ -180,9 +180,15 @@ type server struct {
 // startServer runs the product's own config for line and good under the product's supervisor.
 func startServer(t *testing.T, line model.Line, good model.Client) *server {
 	t.Helper()
+	return startServerWith(t, []model.Line{line}, []model.Client{good}, nil)
+}
+
+// startServerWith runs the product's config for several lines, clients and exits.
+func startServerWith(t *testing.T, lines []model.Line, cl []model.Client, exits []model.Exit) *server {
+	t.Helper()
 	bin := xrayBin(t)
 	opt := engine.Options{APIPort: freeTCPPort(t), LogLevel: "info"}
-	cfg, err := engine.BuildConfig([]model.Line{line}, []model.Client{good}, opt)
+	cfg, err := engine.BuildConfig(lines, cl, exits, opt)
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)
 	}
@@ -607,6 +613,9 @@ func TestVLESSReality(t *testing.T) {
 	t.Run("xray-from-link", func(t *testing.T) {
 		run(t, scenario{line: line, good: good, wrong: wrong, startClient: xrayLinkClient(nil, nil)})
 	})
+	t.Run("xray-via-exit-builder", func(t *testing.T) {
+		run(t, scenario{line: line, good: good, wrong: wrong, startClient: exitBuilderClient(nil)})
+	})
 }
 
 func TestHysteria2(t *testing.T) {
@@ -625,7 +634,12 @@ func TestHysteria2(t *testing.T) {
 				},
 			}
 			good, wrong := clients(engine.NewPassword)
-			run(t, scenario{line: line, good: good, wrong: wrong, startClient: mihomoClient(cert.certPEM)})
+			t.Run("mihomo", func(t *testing.T) {
+				run(t, scenario{line: line, good: good, wrong: wrong, startClient: mihomoClient(cert.certPEM)})
+			})
+			t.Run("xray-via-exit-builder", func(t *testing.T) {
+				run(t, scenario{line: line, good: good, wrong: wrong, startClient: exitBuilderClient(cert.certPEM)})
+			})
 		})
 	}
 }
@@ -658,7 +672,12 @@ func TestVLESSXHTTPTLS(t *testing.T) {
 		},
 	}
 	good, wrong := clients(engine.NewUUID)
-	run(t, scenario{line: line, good: good, wrong: wrong, startClient: xrayLinkClient(cert.certPEM, nil)})
+	t.Run("xray-from-link", func(t *testing.T) {
+		run(t, scenario{line: line, good: good, wrong: wrong, startClient: xrayLinkClient(cert.certPEM, nil)})
+	})
+	t.Run("xray-via-exit-builder", func(t *testing.T) {
+		run(t, scenario{line: line, good: good, wrong: wrong, startClient: exitBuilderClient(cert.certPEM)})
+	})
 }
 
 // TestVLESSXHTTPPlain puts a TLS-terminating HTTP/2 reverse proxy in front of the plain line, as a CDN would.

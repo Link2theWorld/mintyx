@@ -1,12 +1,13 @@
 import { ReloadOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Alert, App, Badge, Button, Card, Flex, Popconfirm, Statistic, Typography, theme } from "antd";
+import { Alert, App, Badge, Button, Card, Flex, Popconfirm, Typography } from "antd";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { api } from "../api/client";
 import { keys, useEngine, useEngineLogs, useStatus } from "../api/queries";
 import type { Engine } from "../api/schemas";
 import { PageHeader } from "../components/PageHeader";
+import { Polaroid, Sticker } from "../components/Paper";
 import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
 import { errorText } from "../lib/errors";
@@ -85,36 +86,43 @@ function EngineCard() {
   );
 }
 
+/** "134 GB" → number and unit, so the number can be written large and the unit small. */
+function splitUnit(v: string): [string, string] {
+  const i = v.lastIndexOf(" ");
+  return i < 0 ? [v, ""] : [v.slice(0, i), v.slice(i + 1)];
+}
+
 function StatsRow() {
   const { t } = useI18n();
   const q = useStatus();
   const s = q.data;
   if (!s) return <Card><QueryState isPending={q.isPending} error={q.error} refetch={q.refetch} /></Card>;
+  const [total, unit] = splitUnit(formatBytes(s.totalUp + s.totalDown));
   return (
     <>
       <div className="stat-grid">
-        <Card><Statistic title={t("overview.lines")} value={s.lineCount} /></Card>
-        <Card>
-          <Statistic title={t("overview.clients")} value={s.clientCount} />
-          <Typography.Text type="secondary">{t("overview.activeClients", { active: s.activeClientCount })}</Typography.Text>
-        </Card>
-        <Card>
-          <Statistic title={t("overview.traffic")} value={formatBytes(s.totalUp + s.totalDown)} />
-          <Typography.Text type="secondary">
-            {t("overview.up")} {formatBytes(s.totalUp)} · {t("overview.down")} {formatBytes(s.totalDown)}
-          </Typography.Text>
-        </Card>
+        <Polaroid index={0} caption={t("overview.lines")} value={s.lineCount} />
+        <Polaroid index={1} pink caption={t("overview.clients")} value={s.clientCount}
+          meta={t("overview.activeClients", { active: s.activeClientCount })} />
+        <Polaroid index={2} caption={t("overview.traffic")} value={total} unit={unit}
+          meta={`${t("overview.up")} ${formatBytes(s.totalUp)} · ${t("overview.down")} ${formatBytes(s.totalDown)}`} />
       </div>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {t("overview.panelSince", { time: formatDateTime(s.panelStartedAt) })}
-      </Typography.Text>
+      <span className="meta">{t("overview.panelSince", { time: formatDateTime(s.panelStartedAt) })}</span>
     </>
   );
 }
 
+/** The engine's state as a sticker beside the page title. */
+function EngineSticker() {
+  const { t } = useI18n();
+  const e = useEngine().data;
+  if (!e) return null;
+  const state = engineState(e);
+  return <Sticker quiet={state !== "running"}>{t(`overview.${state}`)}</Sticker>;
+}
+
 function LogsCard() {
   const { t } = useI18n();
-  const { token } = theme.useToken();
   const q = useEngineLogs();
   return (
     <Card title={t("overview.logs")}>
@@ -122,12 +130,7 @@ function LogsCard() {
       {q.data && (q.data.length === 0 ? (
         <Typography.Text type="secondary">{t("overview.logsEmpty")}</Typography.Text>
       ) : (
-        <pre
-          className="log-box"
-          tabIndex={0}
-          aria-label={t("overview.logs")}
-          style={{ background: token.colorFillTertiary, color: token.colorText, fontFamily: token.fontFamilyCode }}
-        >
+        <pre className="log-box" tabIndex={0} aria-label={t("overview.logs")} style={{ fontFamily: "var(--ant-font-family-code)" }}>
           {q.data.join("\n")}
         </pre>
       ))}
@@ -139,9 +142,9 @@ export function OverviewPage() {
   const { t } = useI18n();
   return (
     <>
-      <PageHeader title={t("overview.title")} />
+      <PageHeader title={t("overview.title")} sticker={<EngineSticker />} />
       <SshPasswordWarning />
-      <Flex vertical gap={16}>
+      <Flex vertical gap={22}>
         <StatsRow />
         <EngineCard />
         <ReachCard />

@@ -54,7 +54,7 @@ type jsonObj = map[string]any
 
 func buildJSON(t *testing.T, lines []model.Line, clients []model.Client) jsonObj {
 	t.Helper()
-	out, err := BuildConfig(lines, clients, Options{APIPort: 10085})
+	out, err := BuildConfig(lines, clients, nil, Options{APIPort: 10085})
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)
 	}
@@ -253,14 +253,14 @@ func TestBuildConfigWithNoClientsEmitsEmptyUserLists(t *testing.T) {
 
 func TestBuildConfigDeterministic(t *testing.T) {
 	lines := []model.Line{hy2Line(3, 443, "x"), realityLine(1, 443), xhttpLine(2, 80, model.XHTTPPlain)}
-	a, err := BuildConfig(lines, testClients, Options{APIPort: 10085})
+	a, err := BuildConfig(lines, testClients, nil, Options{APIPort: 10085})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reversed := []model.Line{lines[2], lines[1], lines[0]}
 	clients := []model.Client{testClients[2], testClients[1], testClients[0]}
 	for range 20 {
-		b, err := BuildConfig(reversed, clients, Options{APIPort: 10085})
+		b, err := BuildConfig(reversed, clients, nil, Options{APIPort: 10085})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -310,7 +310,7 @@ func TestBuildConfigErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := BuildConfig(tc.lines, testClients, Options{APIPort: 10085})
+			_, err := BuildConfig(tc.lines, testClients, nil, Options{APIPort: 10085})
 			var le *LineError
 			if !errors.As(err, &le) {
 				t.Fatalf("err = %v, want *LineError", err)
@@ -323,17 +323,17 @@ func TestBuildConfigErrors(t *testing.T) {
 }
 
 func TestBuildConfigClientAndOptionErrors(t *testing.T) {
-	_, err := BuildConfig(nil, []model.Client{{ID: 5}}, Options{APIPort: 10085})
+	_, err := BuildConfig(nil, []model.Client{{ID: 5}}, nil, Options{APIPort: 10085})
 	var ce *ClientError
 	if !errors.As(err, &ce) || *ce != (ClientError{5, "Secret", "empty"}) {
 		t.Errorf("empty secret: err = %v, want ClientError for client 5", err)
 	}
-	_, err = BuildConfig(nil, nil, Options{})
+	_, err = BuildConfig(nil, nil, nil, Options{})
 	var oe *OptionsError
 	if !errors.As(err, &oe) || oe.Field != "APIPort" {
 		t.Errorf("zero api port: err = %v, want OptionsError on APIPort", err)
 	}
-	_, err = BuildConfig(nil, nil, Options{APIPort: 1, LogLevel: "loud"})
+	_, err = BuildConfig(nil, nil, nil, Options{APIPort: 1, LogLevel: "loud"})
 	if !errors.As(err, &oe) || oe.Field != "LogLevel" {
 		t.Errorf("bad log level: err = %v, want OptionsError on LogLevel", err)
 	}
@@ -360,7 +360,7 @@ func TestBuildConfigValidatesWithRealXray(t *testing.T) {
 	lines := []model.Line{reality, xtls, xhttpLine(4, 24434, model.XHTTPPlain), hy}
 	clients := []model.Client{{ID: 1, Secret: NewUUID()}, {ID: 2, Secret: NewUUID()}}
 
-	cfg, err := BuildConfig(lines, clients, Options{APIPort: 24430})
+	cfg, err := BuildConfig(lines, clients, nil, Options{APIPort: 24430})
 	if err != nil {
 		t.Fatal(err)
 	}

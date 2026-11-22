@@ -4,8 +4,11 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/ysuhao/mintyx-next/internal/engine"
@@ -54,15 +57,7 @@ func (e *Engine) Sync(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	lines, err := e.Store.ListLines(ctx)
-	if err != nil {
-		return err
-	}
-	clients, err := e.Store.ListClients(ctx)
-	if err != nil {
-		return err
-	}
-	config, err := engine.BuildConfig(lines, clients, e.Options)
+	config, exits, err := e.build(ctx)
 	if err != nil {
 		return err
 	}
@@ -70,7 +65,7 @@ func (e *Engine) Sync(ctx context.Context) error {
 		return nil
 	}
 	// A config Xray rejects would crash-loop it; keep the running one instead.
-	if err := e.validate(ctx, config); err != nil {
+	if err := e.check(ctx, config, exits); err != nil {
 		return err
 	}
 	if e.started {
@@ -85,6 +80,50 @@ func (e *Engine) Sync(ctx context.Context) error {
 			return err
 		}
 		e.started = true
+	}
+	return nil
+}
+
+// Check asks Xray whether it would take the config the store describes now, also when that is
+// the config already running, which Sync does not ask about again: a certificate may have gone
+// from disk, or Xray been upgraded, since it started. Nothing is applied.
+func (e *Engine) Check(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	config, exits, err := e.build(ctx)
+	if err != nil {
+		return err
+	}
+	return e.check(ctx, config, exits)
+}
+
+// build makes the config from the store; callers hold e.mu.
+func (e *Engine) build(ctx context.Context) ([]byte, []model.Exit, error) {
+	lines, err := e.Store.ListLines(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	clients, err := e.Store.ListClients(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	exits, err := e.Store.ListExits(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	config, err := engine.BuildConfig(lines, clients, exits, e.Options)
+	return config, exits, err
+}
+
+// check runs `xray run -test` on config. Only Xray's own refusal is marked ErrConfigRejected.
+func (e *Engine) check(ctx context.Context, config []byte, exits []model.Exit) error {
+	if err := e.validate(ctx, config); err != nil {
+		var cte *engine.ConfigTestError
+		if !errors.As(err, &cte) {
+			// Xray could not be asked at all (missing binary, no temp dir): not a refusal.
+			return err
+		}
+		return fmt.Errorf("%w: %w", panel.ErrConfigRejected, redactExitSecrets(err, exits))
 	}
 	return nil
 }
@@ -168,3 +207,21 @@ func (Keys) NewUUID() string                            { return engine.NewUUID(
 func (Keys) NewRealityKeyPair() (string, string, error) { return engine.NewRealityKeyPair() }
 func (Keys) NewShortID() string                         { return engine.NewShortID() }
 func (Keys) NewPassword() string                        { return engine.NewPassword() }
+
+// redactExitSecrets hides exit credentials that Xray may echo in its error text, such as a
+// Shadowsocks key it could not decode, before the error reaches the API response and the log.
+func redactExitSecrets(err error, exits []model.Exit) error {
+	var cte *engine.ConfigTestError
+	if !errors.As(err, &cte) {
+		return err
+	}
+	out := cte.Output
+	for _, x := range exits {
+		for _, secret := range []string{x.Params.Secret, x.Params.ObfsPassword, x.Params.Encryption} {
+			if len(secret) >= 4 && secret != "none" {
+				out = strings.ReplaceAll(out, secret, "[redacted]")
+			}
+		}
+	}
+	return &engine.ConfigTestError{ExitErr: cte.ExitErr, Output: out}
+}

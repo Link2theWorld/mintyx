@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { App as AntApp, ConfigProvider, Spin } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
 import { ApiError, setUnauthorizedHandler } from "./api/client";
 import { keys, useSession } from "./api/queries";
@@ -18,6 +18,9 @@ import { ClientsPage } from "./pages/ClientsPage";
 import { LinesPage } from "./pages/LinesPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
+
+// The route map brings a graph library along; it loads only when opened.
+const RouteGraphPage = lazy(() => import("./pages/graph/RouteGraphPage"));
 import { ThemeProvider, useThemePref } from "./theme/ThemeProvider";
 import { themeConfig } from "./theme/themes";
 
@@ -86,7 +89,9 @@ export function AppRoutes() {
         <Route element={<Shell />}>
           <Route index element={<OverviewPage />} />
           <Route path="lines" element={<LinesPage />} />
-          <Route path="clients" element={<ClientsPage />} />
+          <Route path="visitors" element={<ClientsPage />} />
+          <Route path="clients" element={<Navigate to="/visitors" replace />} />
+          <Route path="graph" element={<Suspense fallback={null}><RouteGraphPage /></Suspense>} />
           <Route path="apps" element={<AppsPage />} />
           <Route path="attacks" element={<AttacksPage />} />
           <Route path="audit" element={<AuditPage />} />

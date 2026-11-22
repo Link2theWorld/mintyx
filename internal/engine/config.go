@@ -94,9 +94,10 @@ var (
 
 type obj = map[string]any
 
-// BuildConfig returns the complete Xray JSON config for the enabled lines and clients.
-// Output is deterministic: inputs are ordered by ID and all objects are maps, which encoding/json sorts.
-func BuildConfig(lines []model.Line, clients []model.Client, opt Options) ([]byte, error) {
+// BuildConfig returns the complete Xray JSON config for the enabled lines and clients, with
+// lines that have an exit leaving through it. Output is deterministic: inputs are ordered by
+// ID and all objects are maps, which encoding/json sorts.
+func BuildConfig(lines []model.Line, clients []model.Client, exits []model.Exit, opt Options) ([]byte, error) {
 	if opt.APIPort < 1 || opt.APIPort > 65535 {
 		return nil, &OptionsError{Field: "APIPort", Problem: fmt.Sprintf("%d is not a port number", opt.APIPort)}
 	}
@@ -134,6 +135,18 @@ func BuildConfig(lines []model.Line, clients []model.Client, opt Options) ([]byt
 		}
 		inbounds = append(inbounds, in)
 	}
+	exitOutbounds, exitRules, err := exitRouting(enabled, exits)
+	if err != nil {
+		return nil, err
+	}
+	// IPIfNonMatch resolves a domain only when no rule matched it by name. Without exits nothing
+	// does, so a name pointing at a LAN address meets the block rule resolved. A line routed to
+	// an exit matches by inbound tag, though, so with exits the block rule must resolve on its
+	// own (IPOnDemand) or such a name would slip past it to the exit.
+	domainStrategy := "IPIfNonMatch"
+	if len(exitRules) > 0 {
+		domainStrategy = "IPOnDemand"
+	}
 
 	cfg := obj{
 		"log": obj{"loglevel": logLevel},
@@ -149,17 +162,18 @@ func BuildConfig(lines []model.Line, clients []model.Client, opt Options) ([]byt
 			}},
 		},
 		"inbounds": inbounds,
-		"outbounds": []any{
+		// direct stays first: Xray sends anything no rule matches to the first outbound.
+		"outbounds": append([]any{
 			obj{"tag": directTag, "protocol": "freedom"},
 			obj{"tag": blockTag, "protocol": "blackhole"},
-		},
+		}, exitOutbounds...),
 		"routing": obj{
-			// IPIfNonMatch resolves domain destinations so a name pointing at a LAN address is blocked too.
-			"domainStrategy": "IPIfNonMatch",
-			"rules": []any{
+			// Lines with exits come after the block rule; see domainStrategy above.
+			"domainStrategy": domainStrategy,
+			"rules": append([]any{
 				obj{"inboundTag": []string{apiTag}, "outboundTag": apiTag},
 				obj{"ip": privateDestinations, "outboundTag": blockTag},
-			},
+			}, exitRules...),
 		},
 	}
 	return json.MarshalIndent(cfg, "", "  ")

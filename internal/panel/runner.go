@@ -29,12 +29,21 @@ func (r *Runner) Tick(ctx context.Context) error {
 	s := r.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed, tickErr := quota.Tick(ctx, s.st, r.src, s.now())
+	loc, locErr := s.location(ctx)
+	if locErr != nil {
+		// Reading monthly days in a fallback zone could reset usage a second time; wait for
+		// a tick that can read the configured one.
+		loc = nil
+	}
+	res, tickErr := quota.Tick(ctx, s.st, r.src, s.now(), loc)
+	for _, c := range res.CycleResets {
+		s.auditSystem(ctx, "client.cycle-reset", c.Name, "")
+	}
 	var syncErr error
-	if changed || s.syncPending {
+	if res.Changed || s.syncPending {
 		syncErr = s.syncLocked(ctx)
 	}
-	return errors.Join(tickErr, syncErr)
+	return errors.Join(locErr, tickErr, syncErr)
 }
 
 // Start runs Tick every interval until Stop or ctx is done. Starting twice is a no-op.

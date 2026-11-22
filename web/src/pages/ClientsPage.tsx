@@ -14,15 +14,16 @@ import { App, Button, Card, Drawer, Dropdown, Empty, Flex, Progress, Space, Tabl
 import type { MenuProps } from "antd";
 import { useState } from "react";
 import { api } from "../api/client";
-import { keys, useClients } from "../api/queries";
+import { keys, useClients, useSettings } from "../api/queries";
 import type { Client, ClientInput } from "../api/schemas";
 import { PageHeader } from "../components/PageHeader";
+import { Ticket } from "../components/Paper";
 import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
 import type { Translate } from "../i18n/translate";
 import { clientStatus, type ClientState, type ClientStatus } from "../lib/clientStatus";
 import { errorText, isEngineError } from "../lib/errors";
-import { daysUntil, formatBytes, formatDate } from "../lib/format";
+import { daysUntil, formatBytes, formatDate, formatDateInZone } from "../lib/format";
 import { useIsMobile } from "../lib/useIsMobile";
 import { ClientForm } from "./ClientForm";
 import { ShareDialog } from "./ShareDialog";
@@ -47,9 +48,18 @@ function StatusTags({ status }: { status: ClientStatus }) {
 
 function Usage({ client, status }: { client: Client; status: ClientStatus }) {
   const { t } = useI18n();
+  // The reset day is a day in the panel's time zone, not the browser's.
+  const zone = useSettings().data?.timeZone;
   const { token } = theme.useToken();
   const used = formatBytes(status.used);
-  if (status.fraction === null) return <Typography.Text>{t("clients.usageUnlimited", { used })}</Typography.Text>;
+  const reset = client.nextResetAt ? (
+    <Typography.Text type="secondary" style={{ fontSize: 12, display: "block" }}>
+      {t("clients.nextReset", { date: zone ? formatDateInZone(client.nextResetAt, zone) : formatDate(client.nextResetAt) })}
+    </Typography.Text>
+  ) : null;
+  if (status.fraction === null) {
+    return <div><Typography.Text>{t("clients.usageUnlimited", { used })}</Typography.Text>{reset}</div>;
+  }
   const pct = Math.min(100, Math.round(status.fraction * 100));
   const label = t("clients.usage", { used, quota: formatBytes(client.quotaBytes) });
   return (
@@ -63,6 +73,7 @@ function Usage({ client, status }: { client: Client; status: ClientStatus }) {
         strokeColor={status.nearQuota ? token.colorWarning : undefined}
         aria-label={label}
       />
+      {reset}
     </div>
   );
 }
@@ -76,6 +87,12 @@ function expiryText(expiresAt: string | null, t: Translate): string {
 }
 
 type Op = "disable" | "enable" | "reset" | "rotate" | "delete";
+
+/** "46 GB" → value 46, unit GB, for a ticket stub. */
+function unitSplit(v: string): { value: string; unit: string } {
+  const i = v.lastIndexOf(" ");
+  return i < 0 ? { value: v, unit: "" } : { value: v.slice(0, i), unit: v.slice(i + 1) };
+}
 
 export function ClientsPage() {
   const { t } = useI18n();
@@ -176,6 +193,16 @@ export function ClientsPage() {
         extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ client: null })}>{t("clients.new")}</Button>}
       />
       <QueryState isPending={clients.isPending} error={clients.error} refetch={clients.refetch} />
+      {rows.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <Ticket items={[
+            { label: t("clients.summary.total"), value: rows.length },
+            { label: t("clients.summary.active"), value: rows.filter((r) => r.status.state === "active").length },
+            { label: t("clients.summary.paused"), value: rows.filter((r) => r.status.state !== "active").length },
+            { label: t("clients.summary.used"), ...unitSplit(formatBytes(rows.reduce((n, r) => n + r.client.usedUp + r.client.usedDown, 0))) },
+          ]} />
+        </div>
+      )}
       {clients.data && rows.length === 0 && <Card><Empty description={t("clients.empty")} /></Card>}
       {rows.length > 0 && (mobile ? (
         <div className="card-list">

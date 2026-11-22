@@ -29,7 +29,14 @@ const (
 
 type session struct {
 	expires time.Time
+	// cred is credTag of the password hash the session was opened under.
+	cred [32]byte
 }
+
+// credTag identifies a stored password hash. Sessions live in this process's memory, but the
+// password can also be replaced from outside it by `mintyx reset-password`; checking the tag
+// against the stored hash on every request ends the old sessions in that case too.
+func credTag(hash []byte) [32]byte { return sha256.Sum256(hash) }
 
 type ctxKey struct{}
 
@@ -42,7 +49,8 @@ func newToken() string {
 // Sessions are keyed by the token's hash so lookups never compare the secret itself.
 func tokenKey(tok string) [32]byte { return sha256.Sum256([]byte(tok)) }
 
-func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
+// startSession signs the request's sender in; hash is the password hash they just proved.
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request, hash []byte) {
 	tok := newToken()
 	now := s.now()
 	s.authMu.Lock()
@@ -51,7 +59,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 			delete(s.sessions, k)
 		}
 	}
-	s.sessions[tokenKey(tok)] = session{expires: now.Add(sessionTTL)}
+	s.sessions[tokenKey(tok)] = session{expires: now.Add(sessionTTL), cred: credTag(hash)}
 	s.authMu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: tok, Path: "/", MaxAge: int(sessionTTL / time.Second),
@@ -59,28 +67,43 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) currentSession(r *http.Request) ([32]byte, bool) {
+// currentSession finds the request's session. It is valid while unexpired and opened under
+// the password that is stored now.
+func (s *Server) currentSession(r *http.Request) ([32]byte, bool, error) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
-		return [32]byte{}, false
+		return [32]byte{}, false, nil
+	}
+	_, hash, exists, err := s.admin(r.Context())
+	if err != nil {
+		return [32]byte{}, false, err
 	}
 	k := tokenKey(c.Value)
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	se, ok := s.sessions[k]
 	if !ok {
-		return k, false
+		return k, false, nil
 	}
 	if !s.now().Before(se.expires) {
 		delete(s.sessions, k)
-		return k, false
+		return k, false, nil
 	}
-	return k, true
+	// Not deleted on a mismatch: putPassword may have stored the new hash and not yet
+	// re-tagged the session that made the change.
+	if !exists || se.cred != credTag(hash) {
+		return k, false, nil
+	}
+	return k, true, nil
 }
 
 func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		k, ok := s.currentSession(r)
+		k, ok, err := s.currentSession(r)
+		if err != nil {
+			s.writeFail(w, err)
+			return
+		}
 		if !ok {
 			writeErr(w, http.StatusUnauthorized, codeUnauthorized, "login required", "")
 			return
@@ -107,8 +130,13 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		s.writeFail(w, err)
 		return
 	}
+	_, ok, err := s.currentSession(r)
+	if err != nil {
+		s.writeFail(w, err)
+		return
+	}
 	var name *string
-	if _, ok := s.currentSession(r); ok && exists {
+	if ok && exists {
 		name = &user
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"needsSetup": !exists, "username": name})
@@ -177,7 +205,7 @@ func (s *Server) postSetup(w http.ResponseWriter, r *http.Request) {
 		s.writeFail(w, err)
 		return
 	}
-	s.startSession(w, r)
+	s.startSession(w, r, hash)
 	s.audit(r, "setup", in.Username, "")
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -223,13 +251,13 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.limiter.reset(ip)
-	s.startSession(w, r)
+	s.startSession(w, r, hash)
 	s.audit(r, "login.ok", user, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) postLogout(w http.ResponseWriter, r *http.Request) {
-	if k, ok := s.currentSession(r); ok {
+	if k, ok, _ := s.currentSession(r); ok {
 		s.authMu.Lock()
 		delete(s.sessions, k)
 		s.authMu.Unlock()
@@ -283,10 +311,13 @@ func (s *Server) putPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	keep, _ := r.Context().Value(ctxKey{}).([32]byte)
 	s.authMu.Lock()
-	for k := range s.sessions {
+	for k, se := range s.sessions {
 		if k != keep {
 			delete(s.sessions, k)
+			continue
 		}
+		se.cred = credTag(newHash)
+		s.sessions[k] = se
 	}
 	s.authMu.Unlock()
 	s.audit(r, "password.change", user, "")

@@ -64,6 +64,8 @@ type VPS struct {
 	BreakKeysWithPasswords bool
 	// OtherConfigKeepsPasswords emulates another sshd config file that wins over the drop-in.
 	OtherConfigKeepsPasswords bool
+	// SSHDSilent emulates an sshd whose `sshd -T` fails, so its settings cannot be read.
+	SSHDSilent bool
 
 	files        map[string][]byte
 	xrayVersion  string
@@ -74,6 +76,9 @@ type VPS struct {
 	ran          []Ran
 	uploads      int
 	panelAddr    string
+	// st is the panel's database, which the reset-password script edits the way the real
+	// panel program does from a second process.
+	st *store.Store
 }
 
 // New starts the VPS with a non-root login that may sudo with its password.
@@ -96,6 +101,7 @@ func New(t testing.TB) *VPS {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	v.st = st
 	srv, err := panel.New(panel.Config{
 		Store: st, Engine: idleEngine{}, Keys: app.Keys{}, ReservedPorts: []int{8088, 10085},
 		CoverSite: func(context.Context, string) string {
@@ -127,6 +133,7 @@ func New(t testing.TB) *VPS {
 type idleEngine struct{}
 
 func (idleEngine) Sync(context.Context) error    { return nil }
+func (idleEngine) Check(context.Context) error   { return nil }
 func (idleEngine) Restart(context.Context) error { return nil }
 func (idleEngine) Status(context.Context) panel.EngineStatus {
 	return panel.EngineStatus{Running: true, BinaryFound: true}
@@ -306,7 +313,7 @@ func parseScript(text string) (name string, vars map[string]string, ok bool) {
 
 var rootOnly = map[string]bool{
 	"install-file": true, "xray-install": true, "service": true, "firewall": true,
-	"keylogin-apply": true, "keylogin-rollback": true,
+	"keylogin-apply": true, "keylogin-rollback": true, "reset-password": true, "sshd-settings": true,
 }
 
 func (v *VPS) script(e *sshtest.Exec, in io.Reader, asRoot bool) int {
@@ -410,6 +417,30 @@ func (v *VPS) script(e *sshtest.Exec, in io.Reader, asRoot bool) int {
 			v.SSH.RevokeAllKeys(e.User)
 		}
 		say("result=applied")
+	case "reset-password":
+		if _, ok := v.files["/usr/local/bin/mintyx"]; !ok || !v.panelRunning {
+			say("problem=not-installed")
+			break
+		}
+		user, password, err := panel.ResetAdminPassword(context.Background(), v.st)
+		if err != nil {
+			fmt.Fprintln(e.Stderr, "mintyx:", err)
+			return 1
+		}
+		say("user=%s", user)
+		say("password=%s", password)
+	case "sshd-settings":
+		if v.SSHDSilent {
+			fmt.Fprintln(e.Stderr, "sshd: no hostkeys available -- exiting.")
+			return 1
+		}
+		password := "yes"
+		if v.SSH.PasswordDisabled() {
+			password = "no"
+		}
+		say("passwordauthentication %s", password)
+		say("kbdinteractiveauthentication no")
+		say("usepam yes")
 	case "keylogin-rollback":
 		delete(v.files, vars["DROPIN"])
 		v.SSH.EnablePassword()

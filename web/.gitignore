@@ -4,3 +4,6 @@ node_modules/
 /dist/*
 !/dist/unbuilt.html
 *.tsbuildinfo
+
+# Original font files subset-fonts.mjs downloads into; only the subsets are committed.
+/.font-cache/

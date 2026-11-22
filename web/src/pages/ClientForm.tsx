@@ -1,4 +1,4 @@
-import { App, Button, DatePicker, Flex, Form, Input, InputNumber, Space } from "antd";
+import { App, Button, DatePicker, Flex, Form, Input, InputNumber, Select, Space } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useState } from "react";
 import { ApiError } from "../api/client";
@@ -11,9 +11,14 @@ interface Values {
   name: string;
   quotaGb: number | null;
   expires: Dayjs | null;
+  resetDay: number;
 }
 
-const serverFieldToForm: Record<string, keyof Values> = { name: "name", quotaBytes: "quotaGb", expiresAt: "expires" };
+const serverFieldToForm: Record<string, keyof Values> = {
+  name: "name", quotaBytes: "quotaGb", expiresAt: "expires", quotaResetDay: "resetDay",
+};
+
+const resetDays = Array.from({ length: 31 }, (_, i) => i + 1);
 
 /** Expiry is stored as the end of the chosen local day, sent as UTC. */
 export function toClientInput(v: Values): ClientInput {
@@ -21,6 +26,7 @@ export function toClientInput(v: Values): ClientInput {
     name: v.name.trim(),
     quotaBytes: gbToBytes(v.quotaGb),
     expiresAt: v.expires ? v.expires.endOf("day").toISOString() : null,
+    quotaResetDay: v.resetDay,
   };
 }
 
@@ -39,6 +45,7 @@ export function ClientForm({ client, onSubmit, onCancel }: {
     // Rounded for display; finish() sends the original bytes when this is left unchanged.
     quotaGb: client ? bytesToGb(client.quotaBytes) : 0,
     expires: client?.expiresAt ? dayjs(client.expiresAt) : null,
+    resetDay: client?.quotaResetDay ?? 0,
   };
 
   const finish = async (v: Values) => {
@@ -68,6 +75,15 @@ export function ClientForm({ client, onSubmit, onCancel }: {
       </Form.Item>
       <Form.Item name="quotaGb" label={t("clientForm.quota")} extra={t("clientForm.quotaHelp")}>
         <InputNumber min={0} max={MAX_QUOTA_GB} step={10} style={{ width: "100%" }} suffix="GB" />
+      </Form.Item>
+      <Form.Item name="resetDay" label={t("clientForm.resetDay")} extra={t("clientForm.resetDayHelp")}>
+        <Select
+          aria-label={t("clientForm.resetDay")}
+          options={[
+            { value: 0, label: t("clientForm.resetDayNever") },
+            ...resetDays.map((d) => ({ value: d, label: t("clientForm.resetDayOption", { day: d }) })),
+          ]}
+        />
       </Form.Item>
       <Form.Item label={t("clientForm.expiry")} extra={t("clientForm.expiryHelp")}>
         <Space wrap style={{ marginBottom: 8 }}>

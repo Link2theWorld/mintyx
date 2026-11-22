@@ -14,7 +14,7 @@ describe("ClientForm preserves existing limits", () => {
     const client: Client = {
       id: 1, name: "Phone", disabled: "expired", quotaBytes,
       expiresAt: "2026-01-01T12:34:56.123456789Z", usedUp: 0, usedDown: 0,
-      createdAt: "2025-01-01T00:00:00Z",
+      createdAt: "2025-01-01T00:00:00Z", quotaResetDay: 0, nextResetAt: null,
     };
     const onSubmit = vi.fn(() => Promise.resolve());
     renderWithProviders(<ClientForm client={client} onSubmit={onSubmit} onCancel={() => undefined} />);
@@ -23,15 +23,15 @@ describe("ClientForm preserves existing limits", () => {
     await userEvent.clear(screen.getByLabelText("Name"));
     await userEvent.type(screen.getByLabelText("Name"), "Tablet");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: "Tablet", quotaBytes, expiresAt: client.expiresAt }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: "Tablet", quotaBytes, expiresAt: client.expiresAt, quotaResetDay: 0 }));
   });
 
   it("converts new limits and handles unlimited clients", () => {
-    expect(toClientInput({ name: " Phone ", quotaGb: 2, expires: dayjs("2027-06-01") })).toEqual({
-      name: "Phone", quotaBytes: 2 * 1024 ** 3, expiresAt: dayjs("2027-06-01").endOf("day").toISOString(),
+    expect(toClientInput({ name: " Phone ", quotaGb: 2, expires: dayjs("2027-06-01"), resetDay: 15 })).toEqual({
+      name: "Phone", quotaBytes: 2 * 1024 ** 3, expiresAt: dayjs("2027-06-01").endOf("day").toISOString(), quotaResetDay: 15,
     });
-    expect(toClientInput({ name: "Phone", quotaGb: null, expires: null })).toEqual({
-      name: "Phone", quotaBytes: 0, expiresAt: null,
+    expect(toClientInput({ name: "Phone", quotaGb: null, expires: null, resetDay: 0 })).toEqual({
+      name: "Phone", quotaBytes: 0, expiresAt: null, quotaResetDay: 0,
     });
   });
 
@@ -41,14 +41,14 @@ describe("ClientForm preserves existing limits", () => {
     const client: Client = {
       id: 1, name: "Phone", disabled: "", quotaBytes: 1024 ** 3,
       expiresAt: "2027-01-01T12:34:56Z", usedUp: 0, usedDown: 0,
-      createdAt: "2025-01-01T00:00:00Z",
+      createdAt: "2025-01-01T00:00:00Z", quotaResetDay: 0, nextResetAt: null,
     };
     renderWithProviders(<ClientForm client={client} onSubmit={onSubmit} onCancel={() => undefined} />);
     await userEvent.clear(screen.getByRole("spinbutton"));
     await userEvent.type(screen.getByRole("spinbutton"), "0");
     await userEvent.click(screen.getByRole("button", { name: "Never" }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: "Phone", quotaBytes: 0, expiresAt: null }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: "Phone", quotaBytes: 0, expiresAt: null, quotaResetDay: 0 }));
   });
 
   it("keeps server validation errors on their form field", async () => {
@@ -58,5 +58,25 @@ describe("ClientForm preserves existing limits", () => {
     await userEvent.type(screen.getByLabelText("Name"), "Phone");
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(screen.getByRole("spinbutton")).toHaveAttribute("aria-invalid", "true"));
+  });
+});
+
+describe("ClientForm monthly reset", () => {
+  it("sends the chosen reset day and keeps an existing one when renaming", async () => {
+    localStorage.setItem(LANG_KEY, "en");
+    const onSubmit = vi.fn(() => Promise.resolve());
+    const client: Client = {
+      id: 1, name: "Phone", disabled: "", quotaBytes: 1024 ** 3, expiresAt: null, usedUp: 0, usedDown: 0,
+      createdAt: "2025-01-01T00:00:00Z", quotaResetDay: 15, nextResetAt: "2026-12-14T15:00:00Z",
+    };
+    renderWithProviders(<ClientForm client={client} onSubmit={onSubmit} onCancel={() => undefined} />);
+    expect(screen.getByText("Day 15 of each month")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ quotaResetDay: 15 })));
+
+    await userEvent.click(screen.getByLabelText("Monthly data reset"));
+    await userEvent.click(await screen.findByTitle("Never"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ quotaResetDay: 0 })));
   });
 });

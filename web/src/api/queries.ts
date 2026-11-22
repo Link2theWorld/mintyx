@@ -15,6 +15,9 @@ export const keys = {
   apps: ["apps"] as const,
   reachConfig: ["reach", "config"] as const,
   reachStatus: ["reach", "status"] as const,
+  exits: ["exits"] as const,
+  exitLatency: ["exits", "latency"] as const,
+  graphLayout: ["graph", "layout"] as const,
   attacks: ["attacks"] as const,
   attackSummary: ["attacks", "summary"] as const,
   attackList: (kind: string, country: string) => ["attacks", "list", kind, country] as const,
@@ -54,6 +57,16 @@ export const useAudit = () =>
     getNextPageParam: (last) => (last.length < AUDIT_PAGE ? undefined : last[last.length - 1]?.id),
   });
 
+export const useExits = () => useQuery({ queryKey: keys.exits, queryFn: api.exits });
+/** Latency is measured from the server on demand; polling only while the route map is open. */
+export const useExitLatency = () =>
+  useQuery({
+    queryKey: keys.exitLatency,
+    queryFn: api.exitLatency,
+    // While a round is running, look again soon; otherwise every 15 seconds.
+    refetchInterval: (q) => (q.state.data?.refreshing ? 1_500 : 15_000),
+  });
+export const useGraphLayout = () => useQuery({ queryKey: keys.graphLayout, queryFn: api.graphLayout, staleTime: Infinity });
 export const ATTACK_PAGE = 50;
 export const useAttackSummary = () => useQuery({ queryKey: keys.attackSummary, queryFn: api.attackSummary, refetchInterval: 30_000 });
 export const useAttackConfig = () => useQuery({ queryKey: keys.attackConfig, queryFn: api.attackConfig });

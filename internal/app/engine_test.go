@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ysuhao/mintyx-next/internal/engine"
 	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/ysuhao/mintyx-next/internal/panel"
 	"github.com/ysuhao/mintyx-next/internal/store"
 )
 
@@ -139,5 +142,62 @@ func TestRestartSavesTrafficAndStartsAgain(t *testing.T) {
 	c, _ := st.GetClient(ctx, 1)
 	if c.UsedUp != 9 || proc.stops != 1 || proc.starts != 2 {
 		t.Fatalf("usedUp=%d stops=%d starts=%d, want 9, 1, 2", c.UsedUp, proc.stops, proc.starts)
+	}
+}
+
+// Xray's own refusal is marked so the panel can roll back the change that caused it, and the
+// exit secrets Xray may echo are gone from the text.
+func TestSyncMarksAndScrubsXrayRefusals(t *testing.T) {
+	e, _, st := newTestEngine(t)
+	ctx := context.Background()
+	exit := &model.Exit{Name: "ss", Params: model.ExitParams{Protocol: model.ExitShadowsocks, Host: "203.0.113.9", Port: 8388,
+		Method: "2022-blake3-aes-128-gcm", Secret: "c2VjcmV0LWtleS0xMjM0NQ=="}}
+	if err := st.CreateExit(ctx, exit); err != nil {
+		t.Fatal(err)
+	}
+	e.validate = func(context.Context, []byte) error {
+		return &engine.ConfigTestError{ExitErr: "exit status 23", Output: "invalid key: c2VjcmV0LWtleS0xMjM0NQ=="}
+	}
+	err := e.Sync(ctx)
+	if !errors.Is(err, panel.ErrConfigRejected) {
+		t.Fatalf("Sync = %v, want ErrConfigRejected", err)
+	}
+	if strings.Contains(err.Error(), "c2VjcmV0LWtleS0xMjM0NQ==") {
+		t.Fatalf("Sync error leaks the exit key: %v", err)
+	}
+}
+
+// Xray that cannot be asked at all is not a refusal: nothing should be rolled back for it.
+func TestSyncDoesNotMarkAMissingXrayAsARefusal(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	e.validate = func(context.Context, []byte) error {
+		return errors.New("exec: \"xray\": executable file not found in $PATH")
+	}
+	if err := e.Sync(context.Background()); err == nil || errors.Is(err, panel.ErrConfigRejected) {
+		t.Fatalf("Sync = %v, want a plain error, not ErrConfigRejected", err)
+	}
+}
+
+// Sync does not ask Xray again about the config it is running; Check does, so the panel can
+// tell when that config stopped being one Xray takes (a certificate gone from disk, say).
+func TestCheckAsksXrayEvenAboutTheRunningConfig(t *testing.T) {
+	e, proc, _ := newTestEngine(t)
+	ctx := context.Background()
+	if err := e.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	asked := 0
+	e.validate = func(context.Context, []byte) error {
+		asked++
+		return &engine.ConfigTestError{ExitErr: "exit status 23", Output: "open cert.pem: no such file"}
+	}
+	if err := e.Sync(ctx); err != nil || asked != 0 {
+		t.Fatalf("Sync of the running config = %v after asking Xray %d times, want nil without asking", err, asked)
+	}
+	if err := e.Check(ctx); !errors.Is(err, panel.ErrConfigRejected) || asked != 1 {
+		t.Fatalf("Check = %v after asking Xray %d times, want ErrConfigRejected after 1", err, asked)
+	}
+	if proc.applies != 1 {
+		t.Fatalf("Check applied a config: %d applies, want 1", proc.applies)
 	}
 }

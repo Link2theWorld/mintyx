@@ -21,14 +21,15 @@ function AuthCard({ title, hint, children }: { title: string; hint?: string; chi
   const { t } = useI18n();
   return (
     <div className="auth-wrap">
-      <Card style={{ width: "100%", maxWidth: 400 }} styles={{ body: { padding: 28 } }}>
+      <Card className="tilt-3" style={{ width: "100%", maxWidth: 400 }} styles={{ body: { padding: 28 } }}>
+        <span className="tape" aria-hidden="true" />
         <Flex vertical gap={20}>
           <Flex align="center" gap={10}>
             <Logo size={32} />
-            <Typography.Text strong style={{ fontSize: 18 }}>{t("app.name")}</Typography.Text>
+            <span className="mobile-brand">{t("app.name")}</span>
           </Flex>
           <div>
-            <Typography.Title level={1} style={{ fontSize: 22, margin: 0 }}>{title}</Typography.Title>
+            <h1 className="hand" style={{ fontSize: 34, lineHeight: "36px", margin: 0 }}>{title}</h1>
             {hint && <Typography.Paragraph type="secondary" style={{ margin: "6px 0 0" }}>{hint}</Typography.Paragraph>}
           </div>
           {children}

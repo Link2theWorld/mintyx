@@ -54,7 +54,8 @@ const lineVariants = [
 export const lineDraftSchema = z.discriminatedUnion("protocol", [...lineVariants]);
 export type LineDraft = z.infer<typeof lineDraftSchema>;
 
-const saved = { id: z.number().int(), createdAt: z.string() };
+/** exitId is read-only on lines: the first exit the line leaves through, null for straight out. */
+const saved = { id: z.number().int(), createdAt: z.string(), exitId: z.number().int().nullable().default(null) };
 export const lineSchema = z.discriminatedUnion("protocol", [
   lineVariants[0].extend(saved),
   lineVariants[1].extend(saved),
@@ -74,11 +75,14 @@ export const clientSchema = z.object({
   usedUp: z.number().int().nonnegative(),
   usedDown: z.number().int().nonnegative(),
   createdAt: z.string(),
+  /** 0: the quota never resets; 1–31: usage goes back to zero on that day each month. */
+  quotaResetDay: z.number().int().min(0).max(31),
+  nextResetAt: z.string().nullable(),
 });
 export type Client = z.infer<typeof clientSchema>;
 export const clientsResponseSchema = z.object({ clients: z.array(clientSchema) });
 
-export type ClientInput = { name: string; quotaBytes: number; expiresAt: string | null };
+export type ClientInput = { name: string; quotaBytes: number; expiresAt: string | null; quotaResetDay: number };
 
 export const omittedLineSchema = z.object({
   lineId: z.number().int(),
@@ -130,6 +134,10 @@ export const auditResponseSchema = z.object({ entries: z.array(auditEntrySchema)
 export const settingsSchema = z.object({
   publicHost: z.string(),
   subscriptionBaseUrl: z.string(),
+  /** IANA zone monthly quota days are read in. */
+  timeZone: z.string(),
+  /** Where this server is: "" or a region code. Shown on the route graph. */
+  serverRegion: z.union([z.literal(""), regionSchema]),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -267,3 +275,55 @@ export const errorEnvelopeSchema = z.object({
     field: z.string().optional(),
   }),
 });
+
+export const exitSummarySchema = z.object({
+  protocol: z.enum(["vless", "trojan", "shadowsocks", "socks", "hysteria2"]),
+  host: z.string(),
+  port: z.number().int(),
+  network: z.string(),
+  security: z.string(),
+  serverName: z.string(),
+  flow: z.string(),
+  method: z.string(),
+  auth: z.boolean(),
+  obfs: z.boolean(),
+  pinned: z.boolean(),
+  plaintext: z.boolean(),
+  udp: z.boolean(),
+});
+export type ExitSummary = z.infer<typeof exitSummarySchema>;
+
+/** Another proxy server lines can leave through. Its credentials never reach the browser. */
+export const exitSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  region: z.union([z.literal(""), regionSchema]),
+  nextId: z.number().int().nullable(),
+  createdAt: z.string(),
+  summary: exitSummarySchema,
+});
+export type Exit = z.infer<typeof exitSchema>;
+export const exitsResponseSchema = z.object({ exits: z.array(exitSchema) });
+export const exitParseSchema = z.object({ name: z.string(), summary: exitSummarySchema });
+export type ExitInput = { name: string; region: string; link: string };
+
+export const routingSchema = z.object({
+  lines: z.array(z.object({ id: z.number().int(), exitId: z.number().int().nullable() })),
+  exits: z.array(z.object({ id: z.number().int(), nextId: z.number().int().nullable() })),
+});
+export type Routing = z.infer<typeof routingSchema>;
+
+export const exitLatencySchema = z.object({
+  refreshing: z.boolean(),
+  exits: z.array(z.object({
+    id: z.number().int(),
+    rttMs: z.number().nullable(),
+    measuredAt: z.string().nullable(),
+    unmeasured: z.enum(["udp", "inner"]).optional(),
+    error: z.string().optional(),
+  })),
+});
+export type ExitLatency = z.infer<typeof exitLatencySchema>;
+
+export const graphLayoutSchema = z.object({ positions: z.record(z.string(), z.object({ x: z.number(), y: z.number() })) });
+export type GraphPositions = z.infer<typeof graphLayoutSchema>["positions"];

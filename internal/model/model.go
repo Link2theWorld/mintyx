@@ -37,6 +37,9 @@ type Line struct {
 	XHTTP     *XHTTPParams
 	Hysteria2 *Hysteria2Params
 
+	// ExitID is the first exit this line's traffic leaves through; 0 means straight out of this server.
+	ExitID int64
+
 	CreatedAt time.Time
 }
 
@@ -94,6 +97,11 @@ type Client struct {
 	// QuotaBytes of 0 means unlimited; a nil ExpiresAt means never.
 	QuotaBytes int64
 	ExpiresAt  *time.Time
+	// QuotaResetDay makes the quota monthly: usage returns to zero at midnight on this day of
+	// each month (1–31, the month's last day when it has fewer). 0 means usage never resets.
+	QuotaResetDay int
+	// CycleStart is when the current monthly cycle began; nil when QuotaResetDay is 0.
+	CycleStart *time.Time
 	UsedUp     int64
 	UsedDown   int64
 

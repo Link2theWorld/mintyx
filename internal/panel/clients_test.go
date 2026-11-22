@@ -2,6 +2,7 @@ package panel
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -191,5 +192,131 @@ func TestClientActionsOnMissingClient(t *testing.T) {
 	}
 	if n := f.eng.syncCount(); n != 0 {
 		t.Fatalf("syncs = %d after failed actions", n)
+	}
+}
+
+func TestMonthlyQuotaResetsOnceAndLiftsTheBlock(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	// The fixture clock reads 2026-06-01 12:00 UTC: 21:00 on 1 June in Seoul.
+	w := f.do("POST", "/api/clients", map[string]any{"name": "monthly", "quotaBytes": 100, "expiresAt": nil, "quotaResetDay": 15}, withCookie(c))
+	expectStatus(t, w, http.StatusCreated)
+	created := decodeBody[clientDTO](t, w)
+	wantNext := time.Date(2026, 6, 14, 15, 0, 0, 0, time.UTC) // 15 June 00:00 in Seoul
+	if created.QuotaResetDay != 15 || created.NextResetAt == nil || !created.NextResetAt.Equal(wantNext) {
+		t.Fatalf("created = %+v, want reset day 15 and next reset %v", created, wantNext)
+	}
+	overQuota(f, created.ID)
+
+	*f.clock = wantNext.Add(time.Minute)
+	runner := f.srv.NewRunner(noTraffic, time.Minute)
+	for range 2 {
+		if err := runner.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := f.st.GetClient(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UsedUp+got.UsedDown != 0 || got.Disabled != model.NotDisabled {
+		t.Fatalf("after 15 June = used %d, disabled %q; want zero and active", got.UsedUp+got.UsedDown, got.Disabled)
+	}
+	entries, _ := f.st.ListAudit(t.Context(), 20, 0)
+	resets := 0
+	for _, e := range entries {
+		if e.Action == "client.cycle-reset" && e.Target == "monthly" && e.RemoteIP == "" {
+			resets++
+		}
+	}
+	if resets != 1 {
+		t.Fatalf("audit has %d cycle resets, want exactly 1: %+v", resets, entries)
+	}
+}
+
+func TestQuotaResetDayValidationAndTurningItOff(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	for _, day := range []int{-1, 32} {
+		w := f.do("POST", "/api/clients", map[string]any{"name": "x", "quotaBytes": 0, "quotaResetDay": day}, withCookie(c))
+		expectError(t, w, http.StatusBadRequest, codeInvalid, "quotaResetDay")
+	}
+	w := f.do("POST", "/api/clients", map[string]any{"name": "x", "quotaBytes": 0, "quotaResetDay": 31}, withCookie(c))
+	expectStatus(t, w, http.StatusCreated)
+	id := decodeBody[clientDTO](t, w).ID
+	if err := f.st.AddTraffic(t.Context(), map[int64]model.Traffic{id: {Down: 42}}); err != nil {
+		t.Fatal(err)
+	}
+	w = f.do("PUT", fmt.Sprintf("/api/clients/%d", id), map[string]any{"name": "x", "quotaBytes": 0, "quotaResetDay": 0}, withCookie(c))
+	expectStatus(t, w, http.StatusOK)
+	if got := decodeBody[clientDTO](t, w); got.QuotaResetDay != 0 || got.NextResetAt != nil || got.UsedDown != 42 {
+		t.Fatalf("after turning it off = %+v, want no cycle and the usage untouched", got)
+	}
+}
+
+func TestTimeZoneSetting(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	if got := decodeBody[settingsDTO](t, f.do("GET", "/api/settings", nil, withCookie(c))); got.TimeZone != "Asia/Seoul" {
+		t.Fatalf("default time zone = %q, want Asia/Seoul", got.TimeZone)
+	}
+	for _, bad := range []string{"", "Local", "Mars/Olympus"} {
+		w := f.do("PUT", "/api/settings", map[string]any{"publicHost": "", "subscriptionBaseUrl": "", "timeZone": bad}, withCookie(c))
+		expectError(t, w, http.StatusBadRequest, codeInvalid, "timeZone")
+	}
+
+	w := f.do("POST", "/api/clients", map[string]any{"name": "m", "quotaBytes": 0, "quotaResetDay": 1}, withCookie(c))
+	expectStatus(t, w, http.StatusCreated)
+	id := decodeBody[clientDTO](t, w).ID
+	if err := f.st.AddTraffic(t.Context(), map[int64]model.Traffic{id: {Down: 9}}); err != nil {
+		t.Fatal(err)
+	}
+	w = f.do("PUT", "/api/settings", map[string]any{"publicHost": "", "subscriptionBaseUrl": "", "timeZone": "UTC"}, withCookie(c))
+	expectStatus(t, w, http.StatusOK)
+	// The cycle moves onto UTC midnight instead of looking stale and being reset again.
+	if err := f.srv.NewRunner(noTraffic, time.Minute).Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := f.st.GetClient(t.Context(), id)
+	if got.UsedDown != 9 || got.CycleStart == nil || !got.CycleStart.Equal(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("after switching to UTC = used %d from %v; want usage kept from 1 June UTC", got.UsedDown, got.CycleStart)
+	}
+
+	// Callers that do not know the field (the deployer) keep the stored zone.
+	w = f.do("PUT", "/api/settings", map[string]any{"publicHost": "vpn.example.com", "subscriptionBaseUrl": ""}, withCookie(c))
+	expectStatus(t, w, http.StatusOK)
+	if got := decodeBody[settingsDTO](t, w); got.TimeZone != "UTC" {
+		t.Fatalf("time zone after a PUT without it = %q, want UTC kept", got.TimeZone)
+	}
+}
+
+// A tick that cannot read the time zone must not read monthly days in some other zone.
+func TestMonthlyResetWaitsForAReadableTimeZone(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	w := f.do("POST", "/api/clients", map[string]any{"name": "m", "quotaBytes": 0, "quotaResetDay": 2}, withCookie(c))
+	expectStatus(t, w, http.StatusCreated)
+	id := decodeBody[clientDTO](t, w).ID
+	if err := f.st.AddTraffic(t.Context(), map[int64]model.Traffic{id: {Down: 7}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetSetting(t.Context(), settingTimeZone, "Mars/Olympus"); err != nil {
+		t.Fatal(err)
+	}
+	*f.clock = time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC) // past 2 June in any zone
+	if err := f.srv.NewRunner(noTraffic, time.Minute).Tick(t.Context()); err == nil {
+		t.Fatal("a tick with an unreadable time zone reported no error")
+	}
+	if got, _ := f.st.GetClient(t.Context(), id); got.UsedDown != 7 {
+		t.Fatalf("usage after a tick without a zone = %d, want 7 kept", got.UsedDown)
+	}
+	if err := f.st.SetSetting(t.Context(), settingTimeZone, "Asia/Seoul"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.srv.NewRunner(noTraffic, time.Minute).Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.st.GetClient(t.Context(), id); got.UsedDown != 0 {
+		t.Fatalf("usage once the zone is readable = %d, want the reset", got.UsedDown)
 	}
 }

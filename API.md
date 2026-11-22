@@ -15,8 +15,13 @@
   code 取值：`unauthorized`(401) `forbidden`(403) `not_found`(404) `conflict`(409，
   `field` 为 `port`/`name`/`secret`/`subToken`，应用接口另有 `job`/`state`/`host`) `invalid`(400，`field` 为出错字段)
   `rate_limited`(429) `engine`(502，配置已保存但引擎应用失败) `internal`(500)。
-- 改动线路或客户后，后端重建 Xray 配置并应用。保存成功但引擎应用失败时返回
-  502 `engine`，数据保持已保存状态。
+- 改动线路或访客后，后端重建 Xray 配置并应用。保存成功但引擎应用失败时返回
+  502 `engine`，数据保持已保存状态。例外：新建或修改线路、改走向（`PUT /api/routing`）、
+  替换出口链接时，如果是 Xray 自己拒绝了新配置（`xray run -test` 不通过），这次改动会被撤回，
+  返回 400 `invalid`（`field` 为 `line`、`routing` 或 `link`），数据库里不会留下 Xray 不接受的配置；
+  否则下次启动时整个 Xray 都起不来。但如果改动之前的配置本来就被 Xray 拒绝（比如证书文件不见了），
+  分不清是哪次改动的问题，撤回只会挡住管理员修复（比如停用出问题的线路），这时改动照常保存，返回 502。
+  Xray 缺失、启动失败等其他故障也按 502 处理。
 
 ## 初始化与登录
 
@@ -39,7 +44,8 @@
   "port": 443, "enabled": true, "host": "", "createdAt": "…",
   "reality":   {"publicKey","shortId","serverName","target"},      // 不返回私钥
   "xhttp":     {"path","domain","security","certFile","keyFile"},  // security: "tls" | "none"
-  "hysteria2": {"domain","certFile","keyFile","obfsPassword"}
+  "hysteria2": {"domain","certFile","keyFile","obfsPassword"},
+  "exitId": null   // 只读：线路经过的第一个出口，null 表示从本机直接出网；改走向用 PUT /api/routing
 }
 ```
 三个参数块只出现与 `protocol` 对应的那一个。
@@ -47,26 +53,31 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/lines` | `{"lines": [Line]}` |
-| POST | `/api/lines/draft` | 请求 `{"protocol","region"}`，返回一个未保存、已填好默认值的 Line（含未被占用的建议端口，无 `id`）。REALITY 的 `publicKey` 留空，密钥对在保存时生成。`region` 可省略，是服务器所在地区：`jp` `kr` `hk` `tw` `sg` `us` `eu` `other`，REALITY 的 `serverName`/`target` 取该地区候选站点里从服务器握手最快的一个，当地都不可用时退回全球站点；省略时按美西高校站点挑选；一个可用站点都没有时两项留空。未知地区 400 `invalid`，`field` 为 `region` |
+| POST | `/api/lines/draft` | 请求 `{"protocol","region"}`，返回一个未保存、已填好默认值的 Line（含未被占用的建议端口，无 `id`）。REALITY 的 `publicKey` 留空，密钥对在保存时生成。`region` 可省略，是服务器所在地区：`jp` `kr` `hk` `tw` `sg` `us` `eu` `other`，REALITY 的 `serverName`/`target` 取该地区候选站点里从服务器握手最快的一个，当地都不可用时退回全球站点；省略时用设置里的 `serverRegion`，那也没有时按美西高校站点挑选；一个可用站点都没有时两项留空。未知地区 400 `invalid`，`field` 为 `region` |
 | POST | `/api/lines` | 请求为 Line（无 `id`）。REALITY 省略 `publicKey` 时后端生成一对密钥 |
 | PUT | `/api/lines/{id}` | 整体更新。不能改 `protocol` |
 | DELETE | `/api/lines/{id}` | 204 |
 
-## 客户
+## 访客
 
 ```jsonc
 // Client
 {
   "id": 1, "name": "我的手机", "disabled": "", // "" | "manual" | "quota" | "expired"
-  "quotaBytes": 0, "expiresAt": null, "usedUp": 0, "usedDown": 0, "createdAt": "…"
+  "quotaBytes": 0, "expiresAt": null, "usedUp": 0, "usedDown": 0, "createdAt": "…",
+  "quotaResetDay": 0,    // 0 = 流量不循环；1–31 = 每月这一天的 0 点清零（没有这一天的月份按月底）
+  "nextResetAt": null    // 下次清零的时刻；不循环时为 null
 }
 ```
 `secret` 与订阅令牌不出现在列表里，只通过 share 接口给出。
 
+按月循环：每月清零按设置里的 `timeZone` 计算 0 点。清零时用量归零，因超量停用的访客随即恢复，
+审计日志记一条 `client.cycle-reset`（来源 IP 为空）。新设或改动重置日只确定周期起点，不会立刻清零。
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/clients` | `{"clients": [Client]}` |
-| POST | `/api/clients` | 请求 `{"name","quotaBytes","expiresAt"}`，后端生成密钥与订阅令牌 |
+| POST | `/api/clients` | 请求 `{"name","quotaBytes","expiresAt","quotaResetDay"}`，后端生成密钥与订阅令牌 |
 | PUT | `/api/clients/{id}` | 请求同上 |
 | DELETE | `/api/clients/{id}` | 204 |
 | POST | `/api/clients/{id}/disable` | 手动停用 |
@@ -88,6 +99,51 @@
 }
 ```
 二维码由前端根据 `uri` 与 `url` 生成。
+
+## 出口与走向
+
+出口是另一台代理服务器，线路的流量可以经它（或一串出口）出网：线路 → 出口 A → 出口 B → 互联网。
+
+```jsonc
+// Exit
+{
+  "id": 3, "name": "首尔落地", "region": "kr",   // region: "" 或地区代码
+  "nextId": null,                                 // 下一跳出口，null 表示从这里出网
+  "createdAt": "…",
+  "summary": {                                    // 从链接读出的概要，不含任何密钥
+    "protocol": "vless",       // vless | trojan | shadowsocks | socks | hysteria2
+    "host": "198.51.100.8", "port": 443,
+    "network": "raw",          // vless/trojan：raw | xhttp | ws | grpc；其余为空
+    "security": "reality",     // none | tls | reality
+    "serverName": "www.samsung.com", "flow": "xtls-rprx-vision", "method": "",
+    "auth": false,             // socks 带用户名
+    "obfs": false,             // hysteria2 salamander
+    "pinned": false,           // 固定了证书指纹
+    "plaintext": false,        // 本机到出口之间不加密
+    "udp": false               // 走 UDP（hysteria2）
+  }
+}
+```
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/exits` | `{"exits": [Exit]}` |
+| POST | `/api/exits/parse` | 请求 `{"link"}`，返回 `{"name","summary"}`：只预览，不保存 |
+| POST | `/api/exits` | 请求 `{"name","region","link"}`，201 Exit。`name` 为空时取链接 `#` 后的备注，再没有就用“协议 地址”。链接错误为 400 `invalid`，`field` 为 `link.<部分>`（如 `link.pbk`、`link.scheme`）；指向本面板自己的线路时 `field` 为 `link`。新出口不接线，不会重启 Xray |
+| PUT | `/api/exits/{id}` | 请求同上；`link` 为空表示保留原参数 |
+| POST | `/api/exits/{id}/copy` | 在服务器端复制一份（含密钥），名称加“ (2)”，不接线。同一台服务器既当终点又当中间跳时用 |
+| DELETE | `/api/exits/{id}` | 204。还有线路或出口经过它时 409 `conflict`（`field` 为 `exit`，`message` 列出引用者），带 `?unlink=1` 才删除并让引用者改为直接出网 |
+| GET | `/api/routing` | `{"lines":[{"id","exitId"}],"exits":[{"id","nextId"}]}` |
+| PUT | `/api/routing` | 请求同上，只需列出要改的项，`null` 表示直接出网；一次请求只重启一次 Xray，返回全部走向。未知 id、同一项列两次、成环（`message` 写出环路）或超过 4 跳为 400 `invalid`，`field` 如 `exits[0].nextId` |
+| GET | `/api/exits/latency` | `{"refreshing": bool, "exits": [{"id","rttMs","measuredAt","unmeasured","error"}]}`。立即返回缓存（60 秒有效），过期时在后台刷新。`rttMs` 是从本机到出口的 TCP 握手时间；`unmeasured` 为 `udp`（hysteria2）或 `inner`（只在别的出口后面用到，本机不直接连它），这两种不测 |
+| POST | `/api/exits/latency` | 立即重测，同上；两次之间至少隔 30 秒，否则 429 |
+| GET | `/api/graph/layout` | `{"positions": {"<节点 id>": {"x","y"}}}`：线路图上的节点位置 |
+| PUT | `/api/graph/layout` | 请求同上，204 |
+
+生成的 Xray 配置：每个不同的出口路径前缀一个出站（标签 `via-3`、`via-3-7`），后一跳用
+`streamSettings.sockopt.dialerProxy` 经前一跳连接；每条接了出口的线路一条路由规则，排在内网地址
+拦截规则之后。有接线的出口时路由改用 `IPOnDemand`，让拦截规则先解析域名，指向内网地址的域名也在本机入口处拦下。只有接在启用线路上的出口会写进配置，所以没接线的出口增删改都不会重启 Xray。
+出口不通时流量直接失败，不会改走直连。
 
 ## 订阅（公开，不需登录）
 
@@ -240,13 +296,19 @@ Globalping 对匿名调用按来源 IP 限制每小时 250 次测试，一次测
 `GET /api/audit?limit=50&before=<id>` → `{"entries": [{"id","at","action","target","detail","remoteIp"}]}`，新的在前。
 
 每个改动状态的管理请求、每次登录成功与失败都记一条。`action` 是稳定的英文标识
-（如 `line.create`、`client.rotate`、`login.fail`），`target` 是对象名称，
+（如 `line.create`、`client.rotate`、`login.fail`、`exit.create`、`routing.update`），`target` 是对象名称，
 前端负责把 `action` 翻译成界面语言。密码、密钥、令牌不得写入 `detail`。
 
 ## 设置
 
 `GET /api/settings` / `PUT /api/settings`：
-`{"publicHost": "客户端连接用的域名或 IP", "subscriptionBaseUrl": "订阅地址前缀，空则按请求推断"}`
+`{"publicHost": "客户端连接用的域名或 IP", "subscriptionBaseUrl": "订阅地址前缀，空则按请求推断", "timeZone": "Asia/Seoul", "serverRegion": ""}`
+
+`timeZone` 是 IANA 时区名，默认 `Asia/Seoul`，决定按月清零流量的 0 点。PUT 时可以不带这个字段，
+不带就保留原值。改时区时，所有按月循环的访客把周期起点移到新时区的 0 点，不额外清零。
+
+`serverRegion` 是本机所在地区（`""` 或地区代码），显示在线路图上，也是新建线路草稿的默认地区。
+PUT 时同样可以不带。
 
 ## 主机检查
 

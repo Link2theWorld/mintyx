@@ -272,7 +272,14 @@ footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex;
         <div class="note err" id="panelError" hidden role="alert"></div>
       </div>
 
-      <div class="card" id="keyCard">
+      <div class="card" id="resetCard" hidden>
+        <h2 data-i18n="resetTitle"></h2>
+        <p class="muted" data-i18n="resetHint"></p>
+        <div class="note err" id="resetError" hidden role="alert"></div>
+        <div class="row"><button class="btn" type="button" id="resetBtn" data-i18n="resetBtn"></button></div>
+      </div>
+
+      <div class="card" id="keyCard" hidden>
         <h2 data-i18n="keyTitle"></h2>
         <p data-i18n="keyWhy"></p>
         <p class="muted" data-i18n="keyHow"></p>
@@ -332,7 +339,7 @@ const TEXT = {
     s_setup: "创建管理员", s_line: "创建线路", s_firewall: "放行线路端口",
     d_unchanged: "已是最新", d_uploaded: "已上传", d_started: "已启动", d_restarted: "已重启",
     d_none: "没有启用的防火墙，无需改动", d_ufw: "已在 ufw 放行", d_firewalld: "已在 firewalld 放行",
-    alreadyTitle: "这台服务器已经装过 Mintyx。", alreadyBody: "没有改动任何账号和线路。用你当初保存的密码打开面板即可继续管理。",
+    alreadyTitle: "这台服务器已经装过 Mintyx。", alreadyBody: "没有改动任何账号和线路。用你当初保存的密码打开面板即可继续管理；忘了密码可以在下面重置。",
     panelPasswordTitle: "面板管理员密码（请现在保存）",
     panelPasswordHint: "这是面板的登录密码，部署器不会保存它。点“我已保存”后它会从这里消失，之后无法再次查看。",
     panelUser: "用户名", copy: "复制", copied: "已复制", passwordSaved: "我已保存",
@@ -344,6 +351,9 @@ const TEXT = {
     appsGuide: "各平台下载与导入步骤",
     panelTitle: "打开管理面板", panelHint: "面板不对公网开放。点下面的按钮，部署器会通过 SSH 建立一条隧道，只有这台电脑能访问；关闭本程序后隧道即断开。",
     openPanel: "打开面板", openingPanel: "正在建立隧道…",
+    resetTitle: "忘了面板密码？",
+    resetHint: "可以给管理员账号换一个新密码。旧密码立即失效，已登录的浏览器会被退出；线路、访客和流量记录都不受影响。",
+    resetBtn: "重置管理员密码", resetRunning: "正在重置…",
     keyTitle: "强烈建议：改用密钥登录",
     keyWhy: "密码登录的服务器每天都会被自动扫描猜密码。换成密钥登录并关闭密码登录，是最有效的一步防护。",
     keyHow: "点击后会：在这台电脑的 ~/.ssh 下生成一把新密钥 → 加到服务器 → 确认密钥能登录 → 关闭密码登录 → 再确认一次；任何一步不对都会自动恢复原状。",
@@ -366,6 +376,7 @@ const TEXT = {
     e_passphrase_required: "这把私钥有口令保护，请填写口令。", e_passphrase_wrong: "私钥口令不对。",
     e_bad_key: "无法识别这段私钥。请粘贴完整内容，包括开头和结尾两行。",
     e_invalid: "请检查填写的内容。", e_busy: "上一个操作还在进行，请稍候。", e_password_unsaved: "请先保存页面上显示的面板密码。",
+    e_deploy_first: "请先点“部署”，让服务器运行这个版本的面板程序，再重置密码。", e_not_deployed: "这台服务器上没有装 Mintyx。",
     e_not_connected: "连接已断开，请重新连接。",
     e_unsupported: "这台服务器不受支持。需要使用 systemd 的 64 位 Linux（x86_64 或 arm64）。",
     e_no_payload: "这份程序没有打包适合这台服务器的面板文件。",
@@ -396,7 +407,7 @@ const TEXT = {
     s_setup: "Create the admin", s_line: "Create the line", s_firewall: "Open the line's port",
     d_unchanged: "already up to date", d_uploaded: "uploaded", d_started: "started", d_restarted: "restarted",
     d_none: "no active firewall, nothing to change", d_ufw: "allowed in ufw", d_firewalld: "allowed in firewalld",
-    alreadyTitle: "Mintyx is already installed on this server.", alreadyBody: "No account or line was touched. Open the panel with the password you saved back then.",
+    alreadyTitle: "Mintyx is already installed on this server.", alreadyBody: "No account or line was touched. Open the panel with the password you saved back then; if you lost it, reset it below.",
     panelPasswordTitle: "Panel admin password (save it now)",
     panelPasswordHint: "This is the panel's login. The deployer does not keep it: once you click “I saved it” it disappears from here for good.",
     panelUser: "User name", copy: "Copy", copied: "Copied", passwordSaved: "I saved it",
@@ -408,6 +419,9 @@ const TEXT = {
     appsGuide: "Download and import steps for each platform",
     panelTitle: "Open the admin panel", panelHint: "The panel is not exposed to the internet. The button opens an SSH tunnel that only this computer can use; it closes when this program exits.",
     openPanel: "Open panel", openingPanel: "Opening the tunnel…",
+    resetTitle: "Lost the panel password?",
+    resetHint: "Give the admin account a new password. The old one stops working at once and signed-in browsers are signed out; lines, visitors and traffic records are not affected.",
+    resetBtn: "Reset the admin password", resetRunning: "Resetting…",
     keyTitle: "Strongly recommended: switch to key login",
     keyWhy: "Servers with password login are scanned and guessed at all day. Logging in with a key and turning passwords off is the single most effective protection.",
     keyHow: "One click will: create a new key under ~/.ssh on this computer → add it to the server → prove the key logs in → turn password login off → prove it again. If any step fails, everything is put back.",
@@ -430,6 +444,7 @@ const TEXT = {
     e_passphrase_required: "This key is protected by a passphrase. Enter it.", e_passphrase_wrong: "Wrong passphrase for this key.",
     e_bad_key: "This does not look like a private key. Paste all of it, including the first and last lines.",
     e_invalid: "Check what you entered.", e_busy: "The previous operation is still running.", e_password_unsaved: "Save the panel password shown on this page first.",
+    e_deploy_first: "Click Deploy first so the server runs this version of the panel program, then reset the password.", e_not_deployed: "Mintyx is not installed on this server.",
     e_not_connected: "The connection was lost. Connect again.",
     e_unsupported: "This server is not supported. It must be 64-bit Linux (x86_64 or arm64) with systemd.",
     e_no_payload: "This build has no panel program for this server.",
@@ -640,9 +655,10 @@ function renderProgress(job) {
 
 function renderResult(job) {
   const res = job && !job.running ? job.result : null;
-  $("alreadyNote").hidden = !(res && res.alreadyDeployed);
-
   const hasPassword = !!(res && res.adminPassword);
+  /* Its "use the password you saved" no longer applies once a reset put a new one on the page. */
+  $("alreadyNote").hidden = !(res && res.alreadyDeployed) || hasPassword;
+  $("resetCard").hidden = hasPassword;
   $("passwordCard").hidden = !hasPassword;
   // Disconnecting would throw the only copy of the password away; the server refuses it too.
   $("disconnectBtn").hidden = hasPassword;
@@ -685,6 +701,11 @@ function renderKeyLogin() {
   const conn = state && state.connection;
   box.replaceChildren();
   box.hidden = !k;
+  /* Advice only for a server that may still take passwords: sshd says so, or cannot tell and
+     the user logged in with one. An outcome stays on screen either way. */
+  const sshd = conn && conn.sshdPasswords;
+  const advise = !!conn && (sshd === "on" || (sshd !== "off" && conn.passwordLogin));
+  $("keyCard").hidden = !k && !advise;
   $("keyBtn").hidden = !!(k && k.outcome === "done");
   if (!k) return;
   const texts = { "done": "keyDone", "never-worked": "keyNever", "rolled-back": "keyRolled", "still-on": "keyStill", "error": "keyError" };
@@ -815,6 +836,16 @@ function wire() {
     link.textContent = res.data.url;
     link.hidden = false;
     if (tab) { tab.opener = null; tab.location.replace(res.data.url); }
+  });
+  $("resetBtn").addEventListener("click", async () => {
+    const btn = $("resetBtn");
+    btn.disabled = true;
+    btn.textContent = t("resetRunning");
+    const res = await api("POST", "/api/reset-password");
+    btn.disabled = false;
+    btn.textContent = t("resetBtn");
+    showError($("resetError"), res.ok ? null : res.error, true);
+    if (res.ok || res.error.code === "not_connected") await refresh();
   });
   $("keyBtn").addEventListener("click", async () => {
     const btn = $("keyBtn");

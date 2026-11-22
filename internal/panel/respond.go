@@ -105,9 +105,17 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 
 // audit records one entry; a failure is logged, never surfaced, because the change already happened.
 func (s *Server) audit(r *http.Request, action, target, detail string) {
-	e := model.AuditEntry{At: s.now(), Action: action, Target: target, Detail: detail, RemoteIP: s.remoteIP(r)}
-	if err := s.st.AppendAudit(context.WithoutCancel(r.Context()), &e); err != nil {
-		s.log.Error("panel: append audit", "action", action, "err", err)
+	s.appendAudit(r.Context(), model.AuditEntry{At: s.now(), Action: action, Target: target, Detail: detail, RemoteIP: s.remoteIP(r)})
+}
+
+// auditSystem records something the panel did on its own, such as a monthly reset; it has no source IP.
+func (s *Server) auditSystem(ctx context.Context, action, target, detail string) {
+	s.appendAudit(ctx, model.AuditEntry{At: s.now(), Action: action, Target: target, Detail: detail})
+}
+
+func (s *Server) appendAudit(ctx context.Context, e model.AuditEntry) {
+	if err := s.st.AppendAudit(context.WithoutCancel(ctx), &e); err != nil {
+		s.log.Error("panel: append audit", "action", e.Action, "err", err)
 	}
 }
 
@@ -122,16 +130,50 @@ func (s *Server) Sync(ctx context.Context) error {
 func (s *Server) syncLocked(ctx context.Context) error {
 	err := s.eng.Sync(ctx)
 	s.syncPending = err != nil
+	s.configRefused = errors.Is(err, ErrConfigRejected)
 	if err != nil {
 		s.log.Warn("panel: engine sync failed", "err", err)
 	}
 	return err
 }
 
+// undoRefused handles a saved change that Xray refused. When the state before the change was
+// accepted, undo puts it back and undoRefused returns true: the caller answers 400 and the store
+// never keeps a config Xray refuses, which would stop every line at the next start. When that
+// state was refused as well (an earlier Sync said so, or asking Xray about it now does, say
+// after a certificate went missing while Xray kept running), there is no telling which change
+// is at fault, and undoing this one would only block the admin's way out, such as switching the
+// broken line off. The change then stays (redo puts it back), and the caller answers 502.
+func (s *Server) undoRefused(ctx context.Context, wasRefused bool, undo, redo func(context.Context) error) (bool, error) {
+	if wasRefused {
+		return false, nil
+	}
+	if err := undo(ctx); err != nil {
+		return false, err
+	}
+	// The old state is usually the config Xray is still running, which Sync would not ask
+	// about again; whether Xray still takes it needs asking directly.
+	if err := s.eng.Check(ctx); !errors.Is(err, ErrConfigRejected) {
+		_ = s.syncLocked(ctx)
+		return true, nil
+	}
+	if err := redo(ctx); err != nil {
+		return false, err
+	}
+	// The store is back to the state Xray just refused; no need to have it say so again.
+	s.syncPending, s.configRefused = true, true
+	return false, nil
+}
+
 // applyAndRespond finishes a saved mutation: Sync, then the success body or 502 engine.
 func (s *Server) applyAndRespond(w http.ResponseWriter, r *http.Request, status int, body any) {
-	if err := s.syncLocked(context.WithoutCancel(r.Context())); err != nil {
-		writeErr(w, http.StatusBadGateway, codeEngine, "saved, but the engine failed to apply it: "+err.Error(), "")
+	respondSynced(w, s.syncLocked(context.WithoutCancel(r.Context())), status, body)
+}
+
+// respondSynced answers a saved mutation whose Sync already ran and returned syncErr.
+func respondSynced(w http.ResponseWriter, syncErr error, status int, body any) {
+	if syncErr != nil {
+		writeErr(w, http.StatusBadGateway, codeEngine, "saved, but the engine failed to apply it: "+syncErr.Error(), "")
 		return
 	}
 	if body == nil {

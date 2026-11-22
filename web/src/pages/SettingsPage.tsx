@@ -1,10 +1,10 @@
 import { LogoutOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { App, Button, Card, Flex, Form, Input, Typography } from "antd";
+import { App, Button, Card, Flex, Form, Input, Select, Typography } from "antd";
 import { useState } from "react";
 import { ApiError, api } from "../api/client";
 import { keys, useSession, useSettings } from "../api/queries";
-import type { Settings } from "../api/schemas";
+import { regions, type Settings } from "../api/schemas";
 import { PageHeader } from "../components/PageHeader";
 import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
@@ -14,6 +14,20 @@ import { errorText } from "../lib/errors";
 import { AttackSettingsCard } from "./AttackSettingsCard";
 import { MIN_PASSWORD } from "./AuthPages";
 import { ReachSettingsCard } from "./ReachSettingsCard";
+
+const settingsFields = ["publicHost", "subscriptionBaseUrl", "timeZone", "serverRegion"] as const;
+
+/** Every IANA zone the browser knows, falling back to a few common ones. */
+function timeZoneOptions(current: string): { value: string; label: string }[] {
+  let zones: string[];
+  try {
+    zones = Intl.supportedValuesOf("timeZone");
+  } catch {
+    zones = ["Asia/Seoul", "Asia/Shanghai", "Asia/Tokyo", "Asia/Hong_Kong", "Asia/Singapore", "UTC"];
+  }
+  if (!zones.includes(current)) zones = [current, ...zones];
+  return zones.map((z) => ({ value: z, label: z }));
+}
 
 function GeneralCard() {
   const { t } = useI18n();
@@ -26,12 +40,15 @@ function GeneralCard() {
   const save = async (v: Settings) => {
     setBusy(true);
     try {
-      await api.saveSettings({ publicHost: v.publicHost.trim(), subscriptionBaseUrl: v.subscriptionBaseUrl.trim() });
+      await api.saveSettings({
+        publicHost: v.publicHost.trim(), subscriptionBaseUrl: v.subscriptionBaseUrl.trim(), timeZone: v.timeZone, serverRegion: v.serverRegion,
+      });
       void message.success(t("common.saved"));
       await qc.invalidateQueries({ queryKey: keys.settings });
     } catch (e) {
-      if (e instanceof ApiError && e.field && (e.field === "publicHost" || e.field === "subscriptionBaseUrl")) {
-        form.setFields([{ name: e.field, errors: [e.message || t("err.invalid")] }]);
+      const field = e instanceof ApiError ? settingsFields.find((f) => f === e.field) : undefined;
+      if (e instanceof ApiError && field) {
+        form.setFields([{ name: field, errors: [e.message || t("err.invalid")] }]);
       } else {
         void message.error(errorText(e, t));
       }
@@ -50,6 +67,15 @@ function GeneralCard() {
           </Form.Item>
           <Form.Item name="subscriptionBaseUrl" label={t("settings.subBase")} extra={t("settings.subBaseHelp")}>
             <Input placeholder="https://example.com:8443" inputMode="url" />
+          </Form.Item>
+          <Form.Item name="serverRegion" label={t("settings.serverRegion")} extra={t("settings.serverRegionHelp")}>
+            <Select
+              aria-label={t("settings.serverRegion")}
+              options={[{ value: "", label: t("lines.region.auto") }, ...regions.map((r) => ({ value: r, label: t(`lines.region.${r}`) }))]}
+            />
+          </Form.Item>
+          <Form.Item name="timeZone" label={t("settings.timeZone")} extra={t("settings.timeZoneHelp")}>
+            <Select showSearch aria-label={t("settings.timeZone")} options={timeZoneOptions(settings.data.timeZone)} />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={busy}>{t("common.save")}</Button>
         </Form>

@@ -23,6 +23,7 @@ import (
 	_ "embed"
 
 	"github.com/ysuhao/mintyx-next/internal/deploy"
+	"github.com/ysuhao/mintyx-next/internal/hostcheck"
 )
 
 //go:embed page.html
@@ -37,6 +38,7 @@ const (
 	connectTimeout  = 40 * time.Second
 	deployTimeout   = 20 * time.Minute
 	keyLoginTimeout = 2 * time.Minute
+	resetTimeout    = time.Minute
 )
 
 type Config struct {
@@ -198,6 +200,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.postTunnel(w, r)
 	case "POST /api/key-login":
 		s.postKeyLogin(w, r)
+	case "POST /api/reset-password":
+		s.postResetPassword(w, r)
 	default:
 		writeErr(w, http.StatusNotFound, apiError{Code: "not_found", Message: "no such endpoint"})
 	}
@@ -210,7 +214,9 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request) {
 	}
 	var raw [16]byte
 	_, _ = rand.Read(raw[:])
-	nonce := base64.RawStdEncoding.EncodeToString(raw[:])
+	// URL-safe base64 (allowed in CSP nonces): a "/" from the standard alphabet could put
+	// something that looks like an address into the page.
+	nonce := base64.RawURLEncoding.EncodeToString(raw[:])
 	// Nothing may load from anywhere else: no CDN, no fonts, no analytics.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+
 		"'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
@@ -239,6 +245,9 @@ type connectionDTO struct {
 	FirstSeen   bool   `json:"firstSeen"`
 	// PasswordLogin is false when the user connected with a key and gave no password.
 	PasswordLogin bool `json:"passwordLogin"`
+	// SSHDPasswords says whether the server's sshd accepts passwords at all: "on", "off" or
+	// "unknown". The page only recommends key login while it is not "off".
+	SSHDPasswords hostcheck.PasswordLogin `json:"sshdPasswords"`
 }
 
 type stepDTO struct {
@@ -427,6 +436,7 @@ func (s *Server) postConnect(w http.ResponseWriter, r *http.Request) {
 	conn := &connectionDTO{
 		Host: target.Host, Port: target.Port, User: target.User, Root: client.IsRoot(),
 		Fingerprint: client.Fingerprint(), FirstSeen: client.FirstSeen(), PasswordLogin: target.Password != "",
+		SSHDPasswords: client.PasswordLogin(ctx),
 	}
 	s.mu.Lock()
 	// Reconnecting to the server whose password is still unsaved keeps that deploy on the page.
@@ -651,8 +661,78 @@ func (s *Server) postKeyLogin(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	if s.client == client {
 		s.keyLogin = out
+		if out.PasswordOff && s.conn != nil {
+			// A copy: getState may be encoding the old one.
+			conn := *s.conn
+			conn.SSHDPasswords = hostcheck.Off
+			s.conn = &conn
+		}
 	}
 	s.mu.Unlock()
 	s.log.Info("key login", "outcome", out.Outcome, "port", strconv.Itoa(client.Target().Port))
 	writeJSON(w, http.StatusOK, out)
+}
+
+// panelReady reports whether job got the panel service running. Only then does the server run
+// the panel build this program carries, which knows how to reset its password.
+func panelReady(job *jobState) bool {
+	if job == nil || job.Running {
+		return false
+	}
+	for _, step := range job.Steps {
+		if step.ID == deploy.StepService {
+			return step.Status == deploy.StatusDone
+		}
+	}
+	return false
+}
+
+// postResetPassword gives the panel admin a new password, for a user who lost the one shown
+// after the first deploy. The new password is then held exactly like a fresh deploy's: shown
+// on the page, and the connection kept, until the user confirms saving it.
+func (s *Server) postResetPassword(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	client, job, conn := s.client, s.job, s.conn
+	// The deploy goroutine updates job's steps under s.mu, so read them under it too.
+	ready := panelReady(job)
+	s.mu.Unlock()
+	if client == nil {
+		writeErr(w, http.StatusConflict, apiError{Code: "not_connected", Message: "connect to the server first"})
+		return
+	}
+	if !ready {
+		writeErr(w, http.StatusConflict, apiError{Code: "deploy_first", Message: "run the deploy first, so the server has a panel that can reset its password"})
+		return
+	}
+	if !s.begin(w) {
+		return
+	}
+	defer s.end()
+
+	// Not tied to the request: once the server has a new password, it must reach the page.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), resetTimeout)
+	defer cancel()
+	user, password, err := client.ResetAdminPassword(ctx)
+	if err != nil {
+		e := apiError{Code: "error", Message: err.Error()}
+		if errors.Is(err, deploy.ErrNotDeployed) {
+			e.Code = "not_deployed"
+		}
+		s.log.Info("reset password failed", "code", e.Code)
+		writeErr(w, http.StatusBadGateway, e)
+		return
+	}
+	s.mu.Lock()
+	if s.client == client && s.job == job {
+		res := resultDTO{}
+		if job.Result != nil {
+			res = *job.Result
+		}
+		res.AdminUser, res.AdminPassword = user, password
+		job.Result = &res
+		s.unsavedPassword, s.unsavedAddr = password, net.JoinHostPort(conn.Host, strconv.Itoa(conn.Port))
+	}
+	s.mu.Unlock()
+	s.log.Info("reset the panel password")
+	w.WriteHeader(http.StatusNoContent)
 }

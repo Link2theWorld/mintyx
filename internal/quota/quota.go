@@ -14,6 +14,7 @@ type Store interface {
 	ListClients(ctx context.Context) ([]model.Client, error)
 	AddTraffic(ctx context.Context, add map[int64]model.Traffic) error
 	SetClientDisabled(ctx context.Context, id int64, reason model.DisabledReason) error
+	StartCycle(ctx context.Context, id int64, start time.Time, zeroUsage bool) (bool, error)
 }
 
 // TrafficSource returns traffic since the previous call, keyed by Client.StatsTag.
@@ -33,31 +34,80 @@ func Desired(c model.Client, now time.Time) model.DisabledReason {
 	return model.NotDisabled
 }
 
-// Tick records new traffic and reconciles blocks. changed means the engine config must be rebuilt.
-// A failing source is returned as err only after expiry and quota have still been enforced.
-func Tick(ctx context.Context, st Store, source TrafficSource, now time.Time) (changed bool, err error) {
+// dayOfMonth is midnight in loc on day of the month that contains y-m, or on its last day.
+func dayOfMonth(y int, m time.Month, day int, loc *time.Location) time.Time {
+	first := time.Date(y, m, 1, 0, 0, 0, 0, loc)
+	last := first.AddDate(0, 1, -1).Day()
+	return time.Date(first.Year(), first.Month(), min(day, last), 0, 0, 0, 0, loc)
+}
+
+// CycleStart is when the monthly cycle containing now began: midnight in loc on day (1–31,
+// the month's last day when it is shorter) of this month, or of last month if that is still ahead.
+func CycleStart(day int, now time.Time, loc *time.Location) time.Time {
+	t := now.In(loc)
+	start := dayOfMonth(t.Year(), t.Month(), day, loc)
+	if start.After(t) {
+		start = dayOfMonth(t.Year(), t.Month()-1, day, loc)
+	}
+	return start
+}
+
+// NextReset is when the monthly cycle containing now ends.
+func NextReset(day int, now time.Time, loc *time.Location) time.Time {
+	start := CycleStart(day, now, loc)
+	return dayOfMonth(start.Year(), start.Month()+1, day, loc)
+}
+
+// Result reports what a Tick did. Changed means the engine config must be rebuilt.
+type Result struct {
+	Changed bool
+	// CycleResets are the clients whose monthly usage went back to zero, as they were before.
+	CycleResets []model.Client
+}
+
+// Tick records new traffic, starts due monthly cycles and reconciles blocks. Monthly days
+// are read in loc; a nil loc skips monthly cycles this time. A failing source is returned as
+// err only after everything else still ran.
+func Tick(ctx context.Context, st Store, source TrafficSource, now time.Time, loc *time.Location) (Result, error) {
+	var res Result
 	traffic, sourceErr := source(ctx)
 	if add := ByClientID(traffic); len(add) > 0 {
 		if err := st.AddTraffic(ctx, add); err != nil {
-			return false, err
+			return res, err
 		}
 	}
 
 	clients, err := st.ListClients(ctx)
 	if err != nil {
-		return false, err
+		return res, err
 	}
 	for _, c := range clients {
+		if c.QuotaResetDay > 0 && loc != nil {
+			start := CycleStart(c.QuotaResetDay, now, loc)
+			if c.CycleStart == nil || c.CycleStart.Before(start) {
+				// No cycle recorded yet means nothing to end: anchor it without zeroing.
+				zero := c.CycleStart != nil
+				started, err := st.StartCycle(ctx, c.ID, start, zero)
+				if err != nil {
+					return res, err
+				}
+				if started && zero {
+					res.CycleResets = append(res.CycleResets, c)
+					c.UsedUp, c.UsedDown = 0, 0
+				}
+				c.CycleStart = &start
+			}
+		}
 		want := Desired(c, now)
 		if want == c.Disabled {
 			continue
 		}
 		if err := st.SetClientDisabled(ctx, c.ID, want); err != nil {
-			return changed, err
+			return res, err
 		}
-		changed = true
+		res.Changed = true
 	}
-	return changed, sourceErr
+	return res, sourceErr
 }
 
 // ByClientID turns stats-tag keyed traffic into client-ID keyed traffic, dropping tags that are not clients.

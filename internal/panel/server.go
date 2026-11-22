@@ -22,6 +22,7 @@ import (
 	"github.com/ysuhao/mintyx-next/internal/attack"
 	"github.com/ysuhao/mintyx-next/internal/hostapps"
 	"github.com/ysuhao/mintyx-next/internal/hostcheck"
+	"github.com/ysuhao/mintyx-next/internal/probe"
 	"github.com/ysuhao/mintyx-next/internal/rdap"
 	"github.com/ysuhao/mintyx-next/internal/reach"
 	"github.com/ysuhao/mintyx-next/internal/store"
@@ -31,11 +32,19 @@ import (
 type Engine interface {
 	// Sync rebuilds the Xray config from the store and applies it.
 	Sync(ctx context.Context) error
+	// Check asks Xray whether it would take the config the store describes, even when it is
+	// the one already running (which Sync skips); nothing is applied.
+	Check(ctx context.Context) error
 	Restart(ctx context.Context) error
 	Status(ctx context.Context) EngineStatus
 	// Logs returns the most recent engine output lines, oldest first.
 	Logs() []string
 }
+
+// ErrConfigRejected marks a Sync that failed because Xray refused the built config (its
+// `run -test` said no), as opposed to Xray being missing or failing to start. The running
+// config is kept in that case, so a change that caused it can be rolled back safely.
+var ErrConfigRejected = errors.New("xray rejected the configuration")
 
 // EngineStatus is the snapshot behind GET /api/engine; a zero StartedAt means never started.
 type EngineStatus struct {
@@ -75,6 +84,8 @@ type Config struct {
 	Apps *hostapps.Manager
 	// Reach runs the from-China reachability measurements; nil uses the public Globalping API.
 	Reach reach.Pinger
+	// ExitRTT measures the TCP handshake time to an exit; nil uses probe.ConnectTime.
+	ExitRTT func(ctx context.Context, host string, port int) (time.Duration, error)
 	// Attacks is the collector Xray's output is fed to; nil records sshd's log only.
 	Attacks *attack.Collector
 	// Whois finds where an attack source is from; nil asks the address registries over RDAP.
@@ -116,6 +127,8 @@ type Server struct {
 	// reconciles from a client row an admin request is halfway through changing.
 	mu          sync.Mutex
 	syncPending bool
+	// configRefused is whether the last Sync failed because Xray refused the store's config.
+	configRefused bool
 
 	authMu   sync.Mutex
 	sessions map[[32]byte]session
@@ -138,6 +151,9 @@ type Server struct {
 	// so it still stops at shutdown.
 	life     context.Context
 	stopLife context.CancelFunc
+
+	exitRTT func(ctx context.Context, host string, port int) (time.Duration, error)
+	latency latencyState
 }
 
 func New(cfg Config) (*Server, error) {
@@ -182,6 +198,12 @@ func New(cfg Config) (*Server, error) {
 	if s.apps == nil {
 		s.apps = hostapps.New(hostapps.Options{})
 	}
+	if s.exitRTT = cfg.ExitRTT; s.exitRTT == nil {
+		s.exitRTT = func(ctx context.Context, host string, port int) (time.Duration, error) {
+			return probe.ConnectTime(ctx, host, port, 0)
+		}
+	}
+	s.latency.cache = map[int64]latencyEntry{}
 	for _, p := range cfg.ReservedPorts {
 		s.reserved[p] = true
 	}
@@ -208,6 +230,19 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/lines", s.authed(s.createLine))
 	m.HandleFunc("PUT /api/lines/{id}", s.authed(s.updateLine))
 	m.HandleFunc("DELETE /api/lines/{id}", s.authed(s.deleteLine))
+
+	m.HandleFunc("GET /api/exits", s.authed(s.listExits))
+	m.HandleFunc("POST /api/exits/parse", s.authed(s.parseExit))
+	m.HandleFunc("GET /api/exits/latency", s.authed(s.exitLatency))
+	m.HandleFunc("POST /api/exits/latency", s.authed(s.exitLatency))
+	m.HandleFunc("POST /api/exits", s.authed(s.createExit))
+	m.HandleFunc("PUT /api/exits/{id}", s.authed(s.updateExit))
+	m.HandleFunc("DELETE /api/exits/{id}", s.authed(s.deleteExit))
+	m.HandleFunc("POST /api/exits/{id}/copy", s.authed(s.copyExit))
+	m.HandleFunc("GET /api/routing", s.authed(s.getRouting))
+	m.HandleFunc("PUT /api/routing", s.authed(s.putRouting))
+	m.HandleFunc("GET /api/graph/layout", s.authed(s.getGraphLayout))
+	m.HandleFunc("PUT /api/graph/layout", s.authed(s.putGraphLayout))
 
 	m.HandleFunc("GET /api/clients", s.authed(s.listClients))
 	m.HandleFunc("POST /api/clients", s.authed(s.createClient))

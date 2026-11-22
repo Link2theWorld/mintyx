@@ -1,0 +1,215 @@
+{
+  "api": {
+    "services": [
+      "HandlerService",
+      "StatsService"
+    ],
+    "tag": "api"
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "tunnel",
+      "settings": {
+        "rewriteAddress": "127.0.0.1"
+      },
+      "tag": "api"
+    },
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "c2",
+            "flow": "xtls-rprx-vision",
+            "id": "2c0d4a2f-7c16-4e41-9a49-8a1b6a0f0b9e"
+          },
+          {
+            "email": "c7",
+            "flow": "xtls-rprx-vision",
+            "id": "b831381d-6324-4d53-ad4f-8cda48b30811"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "realitySettings": {
+          "privateKey": "dwdtCnMYpX08FsFyUbJmRd9ML4frwJkqsXf7pR25LCo",
+          "serverNames": [
+            "www.example.com"
+          ],
+          "shortIds": [
+            "0123abcd"
+          ],
+          "target": "www.example.com:443"
+        },
+        "security": "reality"
+      },
+      "tag": "line-1"
+    },
+    {
+      "port": 8443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "c2",
+            "id": "2c0d4a2f-7c16-4e41-9a49-8a1b6a0f0b9e"
+          },
+          {
+            "email": "c7",
+            "id": "b831381d-6324-4d53-ad4f-8cda48b30811"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/etc/ssl/a.crt",
+              "keyFile": "/etc/ssl/a.key"
+            }
+          ],
+          "serverName": "cdn.example.com"
+        },
+        "xhttpSettings": {
+          "mode": "auto",
+          "path": "/x"
+        }
+      },
+      "tag": "line-2"
+    },
+    {
+      "port": 8080,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "c2",
+            "id": "2c0d4a2f-7c16-4e41-9a49-8a1b6a0f0b9e"
+          },
+          {
+            "email": "c7",
+            "id": "b831381d-6324-4d53-ad4f-8cda48b30811"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "none",
+        "xhttpSettings": {
+          "mode": "auto",
+          "path": "/x"
+        }
+      },
+      "tag": "line-3"
+    },
+    {
+      "port": 443,
+      "protocol": "hysteria",
+      "settings": {
+        "users": [
+          {
+            "auth": "2c0d4a2f-7c16-4e41-9a49-8a1b6a0f0b9e",
+            "email": "c2"
+          },
+          {
+            "auth": "b831381d-6324-4d53-ad4f-8cda48b30811",
+            "email": "c7"
+          }
+        ],
+        "version": 2
+      },
+      "streamSettings": {
+        "finalmask": {
+          "udp": [
+            {
+              "settings": {
+                "password": "obfs-pass"
+              },
+              "type": "salamander"
+            }
+          ]
+        },
+        "hysteriaSettings": {
+          "version": 2
+        },
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h3"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/etc/ssl/h.crt",
+              "keyFile": "/etc/ssl/h.key"
+            }
+          ],
+          "serverName": "hy.example.com"
+        }
+      },
+      "tag": "line-4"
+    }
+  ],
+  "log": {
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ],
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserDownlink": true,
+        "statsUserUplink": true
+      }
+    }
+  },
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api"
+      },
+      {
+        "ip": [
+          "0.0.0.0/8",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.0.0.0/24",
+          "192.168.0.0/16",
+          "198.18.0.0/15",
+          "224.0.0.0/3",
+          "::/128",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10",
+          "ff00::/8"
+        ],
+        "outboundTag": "block"
+      }
+    ]
+  },
+  "stats": {}
+}

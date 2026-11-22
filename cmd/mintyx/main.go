@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+	// Monthly quota days are read in an IANA zone; minimal server images may have no zoneinfo.
+	_ "time/tzdata"
 
 	"github.com/ysuhao/mintyx-next/internal/app"
 	"github.com/ysuhao/mintyx-next/internal/attack"
@@ -26,13 +29,64 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
+		err = resetPassword(os.Args[2:])
+	} else {
+		err = run()
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "mintyx:", err)
 		os.Exit(1)
 	}
 }
 
+// resetPassword is `mintyx reset-password`: a new admin password for whoever has root on the
+// server and lost the old one. The password goes to stdout and nowhere else.
+func resetPassword(args []string) error {
+	set := flag.NewFlagSet("reset-password", flag.ExitOnError)
+	dataDir := set.String("data", "data", "the panel's data directory (the deployer uses /var/lib/mintyx)")
+	set.Usage = func() {
+		fmt.Fprintln(set.Output(), "Usage: mintyx reset-password [-data DIR]")
+		fmt.Fprintln(set.Output(), "Gives the admin account a new random password and signs out every session that used the old one.")
+		set.PrintDefaults()
+	}
+	_ = set.Parse(args)
+	if set.NArg() > 0 {
+		return fmt.Errorf("reset-password: unexpected argument %q", set.Arg(0))
+	}
+	path := filepath.Join(*dataDir, "mintyx.db")
+	// Opening a missing file would create an empty database, so look first.
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("there is no panel database at %s; pass -data with the panel's data directory", path)
+	} else if errors.Is(err, fs.ErrPermission) {
+		return fmt.Errorf("%w; run it as root, for example with sudo", err)
+	} else if err != nil {
+		return err
+	}
+	st, err := store.Open(path)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	user, password, err := panel.ResetAdminPassword(context.Background(), st)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "The admin password was reset. Everyone signed in with the old one is signed out.")
+	fmt.Printf("username: %s\npassword: %s\n", user, password)
+	return nil
+}
+
 func run() error {
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		fmt.Fprintln(out, "Usage:")
+		fmt.Fprintln(out, "  mintyx [flags]                       run the panel")
+		fmt.Fprintln(out, "  mintyx reset-password [-data DIR]    give the admin account a new password")
+		fmt.Fprintln(out, "\nFlags:")
+		flag.PrintDefaults()
+	}
 	var (
 		dataDir    = flag.String("data", "data", "directory for the database and the generated Xray config")
 		listen     = flag.String("listen", "127.0.0.1:8088", "address the panel listens on")

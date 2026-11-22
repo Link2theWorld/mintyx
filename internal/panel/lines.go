@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -48,11 +49,13 @@ type lineDTO struct {
 	Reality   *realityDTO    `json:"reality,omitempty"`
 	XHTTP     *xhttpDTO      `json:"xhttp,omitempty"`
 	Hysteria2 *hysteria2DTO  `json:"hysteria2,omitempty"`
+	// ExitID is read-only here: wiring changes go through PUT /api/routing.
+	ExitID *int64 `json:"exitId"`
 }
 
 func lineToDTO(l model.Line) lineDTO {
 	enabled := l.Enabled
-	d := lineDTO{ID: l.ID, Name: l.Name, Protocol: l.Protocol, Port: l.Port, Enabled: &enabled, Host: l.Host}
+	d := lineDTO{ID: l.ID, Name: l.Name, Protocol: l.Protocol, Port: l.Port, Enabled: &enabled, Host: l.Host, ExitID: optionalID(l.ExitID)}
 	if !l.CreatedAt.IsZero() {
 		t := l.CreatedAt
 		d.CreatedAt = &t
@@ -282,6 +285,15 @@ func (s *Server) draftLine(w http.ResponseWriter, r *http.Request) {
 		s.writeFail(w, invalid("region", "unknown region"))
 		return
 	}
+	if in.Region == "" {
+		// The admin may have said once in Settings where this server is.
+		region, _, err := s.st.GetSetting(r.Context(), settingServerRegion)
+		if err != nil {
+			s.writeFail(w, err)
+			return
+		}
+		in.Region = region
+	}
 	port, err := s.suggestPort(r.Context())
 	if err != nil {
 		s.writeFail(w, err)
@@ -311,6 +323,7 @@ func (s *Server) createLine(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	wasRefused := s.configRefused
 	l, err := s.buildLine(d, nil)
 	if err == nil {
 		err = s.st.CreateLine(r.Context(), &l)
@@ -319,8 +332,23 @@ func (s *Server) createLine(w http.ResponseWriter, r *http.Request) {
 		s.writeFail(w, err)
 		return
 	}
+	ctx := context.WithoutCancel(r.Context())
+	syncErr := s.syncLocked(ctx)
+	if errors.Is(syncErr, ErrConfigRejected) {
+		undone, err := s.undoRefused(ctx, wasRefused,
+			func(ctx context.Context) error { return s.st.DeleteLine(ctx, l.ID) },
+			func(ctx context.Context) error { l.ID = 0; return s.st.CreateLine(ctx, &l) })
+		if err != nil {
+			s.writeFail(w, errors.Join(syncErr, err))
+			return
+		}
+		if undone {
+			s.writeFail(w, invalid("line", "Xray refused this line, so it was not saved: "+syncErr.Error()))
+			return
+		}
+	}
 	s.audit(r, "line.create", l.Name, string(l.Protocol)+" port "+strconv.Itoa(l.Port))
-	s.applyAndRespond(w, r, http.StatusCreated, lineToDTO(l))
+	respondSynced(w, syncErr, http.StatusCreated, lineToDTO(l))
 }
 
 func (s *Server) updateLine(w http.ResponseWriter, r *http.Request) {
@@ -334,6 +362,7 @@ func (s *Server) updateLine(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	wasRefused := s.configRefused
 	prev, err := s.st.GetLine(r.Context(), id)
 	if err != nil {
 		s.writeFail(w, err)
@@ -341,14 +370,31 @@ func (s *Server) updateLine(w http.ResponseWriter, r *http.Request) {
 	}
 	l, err := s.buildLine(d, &prev)
 	if err == nil {
+		l.ExitID = prev.ExitID // wiring belongs to PUT /api/routing
 		err = s.st.UpdateLine(r.Context(), &l)
 	}
 	if err != nil {
 		s.writeFail(w, err)
 		return
 	}
+	ctx := context.WithoutCancel(r.Context())
+	syncErr := s.syncLocked(ctx)
+	if errors.Is(syncErr, ErrConfigRejected) {
+		// E.g. enabling a line wired to an exit Xray cannot use: put the line back as it was.
+		undone, err := s.undoRefused(ctx, wasRefused,
+			func(ctx context.Context) error { return s.st.UpdateLine(ctx, &prev) },
+			func(ctx context.Context) error { return s.st.UpdateLine(ctx, &l) })
+		if err != nil {
+			s.writeFail(w, errors.Join(syncErr, err))
+			return
+		}
+		if undone {
+			s.writeFail(w, invalid("line", "Xray refused this change, so the line was left as it was: "+syncErr.Error()))
+			return
+		}
+	}
 	s.audit(r, "line.update", l.Name, "")
-	s.applyAndRespond(w, r, http.StatusOK, lineToDTO(l))
+	respondSynced(w, syncErr, http.StatusOK, lineToDTO(l))
 }
 
 func (s *Server) deleteLine(w http.ResponseWriter, r *http.Request) {

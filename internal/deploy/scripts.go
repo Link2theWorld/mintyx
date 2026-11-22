@@ -167,6 +167,23 @@ else
 fi
 `
 
+// The panel program prints `username: ...` and `password: ...`; turned into key=value here.
+// set -e makes a failing command end the script with its own exit code and stderr.
+const resetPasswordBody = `
+if [ ! -x "$BIN" ] || [ ! -f "$DATA/mintyx.db" ]; then
+  echo "problem=not-installed"
+  exit 0
+fi
+out=$("$BIN" reset-password -data "$DATA")
+printf '%s\n' "$out" | sed -n 's/^username: /user=/p; s/^password: /password=/p'
+`
+
+// `sshd -T` prints the effective settings; it needs root to read the host keys.
+const sshdSettingsBody = `
+sshd_bin=$(command -v sshd || echo /usr/sbin/sshd)
+"$sshd_bin" -T
+`
+
 const authorizedKeysAddBody = `
 umask 077
 mkdir -p "$HOME/.ssh"

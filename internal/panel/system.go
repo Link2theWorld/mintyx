@@ -2,11 +2,15 @@ package panel
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ysuhao/mintyx-next/internal/quota"
 )
 
 func (s *Server) getEngine(w http.ResponseWriter, r *http.Request) {
@@ -116,9 +120,30 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
 }
 
+// DefaultTimeZone is the zone monthly quota days are read in until the admin picks another.
+const DefaultTimeZone = "Asia/Seoul"
+
+const (
+	settingTimeZone     = "timeZone"
+	settingServerRegion = "serverRegion"
+)
+
 type settingsDTO struct {
 	PublicHost          string `json:"publicHost"`
 	SubscriptionBaseURL string `json:"subscriptionBaseUrl"`
+	TimeZone            string `json:"timeZone"`
+	// ServerRegion is where this server is ("" or a region code); shown on the route graph and
+	// used as the default when suggesting a REALITY cover site.
+	ServerRegion string `json:"serverRegion"`
+}
+
+// settingsInput is what PUT accepts. TimeZone and ServerRegion are optional so callers that
+// predate them, such as the deployer, keep the stored values instead of clearing them.
+type settingsInput struct {
+	PublicHost          string  `json:"publicHost"`
+	SubscriptionBaseURL string  `json:"subscriptionBaseUrl"`
+	TimeZone            *string `json:"timeZone"`
+	ServerRegion        *string `json:"serverRegion"`
 }
 
 func (s *Server) loadSettings(ctx context.Context) (settingsDTO, error) {
@@ -127,8 +152,43 @@ func (s *Server) loadSettings(ctx context.Context) (settingsDTO, error) {
 	if d.PublicHost, _, err = s.st.GetSetting(ctx, settingPublicHost); err != nil {
 		return d, err
 	}
-	d.SubscriptionBaseURL, _, err = s.st.GetSetting(ctx, settingSubBaseURL)
+	if d.SubscriptionBaseURL, _, err = s.st.GetSetting(ctx, settingSubBaseURL); err != nil {
+		return d, err
+	}
+	tz, found, err := s.st.GetSetting(ctx, settingTimeZone)
+	if err != nil {
+		return d, err
+	}
+	if !found {
+		tz = DefaultTimeZone
+	}
+	d.TimeZone = tz
+	d.ServerRegion, _, err = s.st.GetSetting(ctx, settingServerRegion)
 	return d, err
+}
+
+// loadZone accepts IANA names only; "Local" would silently follow whatever the server is set to.
+func loadZone(name string) (*time.Location, error) {
+	if name == "" || name == "Local" {
+		return nil, errors.New("not an IANA time zone name")
+	}
+	return time.LoadLocation(name)
+}
+
+// location is the zone monthly quota days are read in.
+func (s *Server) location(ctx context.Context) (*time.Location, error) {
+	name, found, err := s.st.GetSetting(ctx, settingTimeZone)
+	if err != nil {
+		return time.UTC, err
+	}
+	if !found {
+		name = DefaultTimeZone
+	}
+	loc, err := loadZone(name)
+	if err != nil {
+		return time.UTC, fmt.Errorf("time zone %q: %w", name, err)
+	}
+	return loc, nil
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -147,8 +207,22 @@ func validSubBase(v string) bool {
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
-	var in settingsDTO
+	var in settingsInput
 	if !decodeJSON(w, r, &in) {
+		return
+	}
+	var zone *time.Location
+	if in.TimeZone != nil {
+		tz := strings.TrimSpace(*in.TimeZone)
+		var err error
+		if zone, err = loadZone(tz); err != nil {
+			s.writeFail(w, invalid("timeZone", "time zone must be an IANA name such as Asia/Seoul"))
+			return
+		}
+		in.TimeZone = &tz
+	}
+	if in.ServerRegion != nil && !validRegion(*in.ServerRegion) {
+		s.writeFail(w, invalid("serverRegion", "unknown region"))
 		return
 	}
 	in.PublicHost = strings.TrimSpace(in.PublicHost)
@@ -175,6 +249,27 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if prev.SubscriptionBaseURL != in.SubscriptionBaseURL {
 		changed = append(changed, "subscriptionBaseUrl")
 	}
+	out := settingsDTO{PublicHost: in.PublicHost, SubscriptionBaseURL: in.SubscriptionBaseURL, TimeZone: prev.TimeZone, ServerRegion: prev.ServerRegion}
+	if in.ServerRegion != nil && *in.ServerRegion != prev.ServerRegion {
+		changed = append(changed, "serverRegion")
+		if err := s.st.SetSetting(r.Context(), settingServerRegion, *in.ServerRegion); err != nil {
+			s.writeFail(w, err)
+			return
+		}
+		out.ServerRegion = *in.ServerRegion
+	}
+	if in.TimeZone != nil && *in.TimeZone != prev.TimeZone {
+		changed = append(changed, "timeZone")
+		if err := s.st.SetSetting(r.Context(), settingTimeZone, *in.TimeZone); err != nil {
+			s.writeFail(w, err)
+			return
+		}
+		if err := s.reanchorCycles(r.Context(), zone); err != nil {
+			s.writeFail(w, err)
+			return
+		}
+		out.TimeZone = *in.TimeZone
+	}
 	if err := s.st.SetSetting(r.Context(), settingPublicHost, in.PublicHost); err != nil {
 		s.writeFail(w, err)
 		return
@@ -184,5 +279,27 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "settings.update", "settings", strings.Join(changed, ", "))
-	writeJSON(w, http.StatusOK, in)
+	writeJSON(w, http.StatusOK, out)
+}
+
+// reanchorCycles moves every monthly cycle onto midnight in the new zone without zeroing usage.
+// Left alone, a cycle anchored in the old zone would look older than the new zone's and be
+// reset a second time within hours.
+func (s *Server) reanchorCycles(ctx context.Context, loc *time.Location) error {
+	clients, err := s.st.ListClients(ctx)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	for _, c := range clients {
+		if c.QuotaResetDay == 0 {
+			continue
+		}
+		start := quota.CycleStart(c.QuotaResetDay, now, loc)
+		c.CycleStart = &start
+		if err := s.st.UpdateClient(ctx, &c); err != nil {
+			return err
+		}
+	}
+	return nil
 }

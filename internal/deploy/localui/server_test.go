@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -163,7 +164,7 @@ func TestPageIsSelfContained(t *testing.T) {
 	}
 
 	csp := resp.Header.Get("Content-Security-Policy")
-	nonce := regexp.MustCompile(`script-src 'nonce-([A-Za-z0-9+/]+)'`).FindStringSubmatch(csp)
+	nonce := regexp.MustCompile(`script-src 'nonce-([A-Za-z0-9_-]+)'`).FindStringSubmatch(csp)
 	if nonce == nil || !strings.HasPrefix(csp, "default-src 'none';") || !strings.Contains(csp, "connect-src 'self'") {
 		t.Fatalf("CSP = %q, want default-src 'none', a script nonce and connect-src 'self'", csp)
 	}
@@ -387,5 +388,117 @@ func TestRetryKeepsTheUnsavedPassword(t *testing.T) {
 	f.do("POST", "/api/password-saved", nil)
 	if resp := f.do("POST", "/api/disconnect", nil); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("disconnect after saving = %d, want 204", resp.StatusCode)
+	}
+}
+
+// panelLogin signs in to the panel through the deployer's tunnel and reports the status.
+func (f *fixture) panelLogin(user, password string) int {
+	f.t.Helper()
+	tunnel := decodeBody[map[string]string](f.t, f.do("POST", "/api/tunnel", nil))
+	body, _ := json.Marshal(map[string]string{"username": user, "password": password})
+	req, err := http.NewRequest("POST", tunnel["url"]+"api/login", bytes.NewReader(body))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mintyx", "1")
+	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}, Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// The case this exists for: the user saved nothing, comes back, finds the server "already
+// deployed", and needs a way into the panel again.
+func TestResetPasswordForAnAlreadyDeployedPanel(t *testing.T) {
+	f := newFixture(t)
+	v := deploytest.New(t)
+	if resp := f.do("POST", "/api/connect", connectBody(v)); resp.StatusCode != 200 {
+		t.Fatalf("connect = %d", resp.StatusCode)
+	}
+	expectError(t, f.do("POST", "/api/reset-password", nil), http.StatusConflict, "deploy_first")
+
+	f.do("POST", "/api/deploy", map[string]any{"region": "unsure"})
+	first := f.waitForDeploy()
+	if first.Error != nil || first.Result == nil || first.Result.AdminPassword == "" {
+		t.Fatalf("first deploy = %+v / %+v", first.Error, first.Result)
+	}
+	lost := first.Result.AdminPassword
+	f.do("POST", "/api/password-saved", nil)
+	f.do("POST", "/api/disconnect", nil)
+
+	if resp := f.do("POST", "/api/connect", connectBody(v)); resp.StatusCode != 200 {
+		t.Fatalf("reconnect = %d", resp.StatusCode)
+	}
+	expectError(t, f.do("POST", "/api/reset-password", nil), http.StatusConflict, "deploy_first")
+	f.do("POST", "/api/deploy", map[string]any{"region": "unsure"})
+	again := f.waitForDeploy()
+	if again.Error != nil || again.Result == nil || !again.Result.AlreadyDeployed || again.Result.AdminPassword != "" {
+		t.Fatalf("second deploy = %+v / %+v, want already deployed and no password", again.Error, again.Result)
+	}
+
+	if resp := f.do("POST", "/api/reset-password", nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reset = %d", resp.StatusCode)
+	}
+	st := decodeBody[stateDTO](t, f.do("GET", "/api/state", nil))
+	res := st.Deploy.Result
+	if res.AdminUser != deploy.AdminUser || res.AdminPassword == "" || res.AdminPassword == lost || !res.AlreadyDeployed {
+		t.Fatalf("after reset: %+v, want a new password for %q on the already-deployed result", res, deploy.AdminUser)
+	}
+	if got := f.panelLogin(deploy.AdminUser, lost); got != http.StatusUnauthorized {
+		t.Fatalf("login with the lost password = %d, want 401", got)
+	}
+	if got := f.panelLogin(deploy.AdminUser, res.AdminPassword); got != http.StatusNoContent {
+		t.Fatalf("login with the new password = %d, want 204", got)
+	}
+
+	// Held like a fresh deploy's password: the page may not drop it before it is saved.
+	if resp := f.do("POST", "/api/disconnect", nil); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("disconnect with the new password unsaved = %d, want 409", resp.StatusCode)
+	}
+	f.do("POST", "/api/password-saved", nil)
+	if st := decodeBody[stateDTO](t, f.do("GET", "/api/state", nil)); st.Deploy.Result.AdminPassword != "" {
+		t.Fatal("the new password is still held after the user saved it")
+	}
+}
+
+// The key login card is advice for servers that may still take passwords, so the page needs
+// to know what sshd itself says, not only how this user logged in.
+func TestConnectionReportsWhetherSSHDTakesPasswords(t *testing.T) {
+	f := newFixture(t)
+	v := deploytest.New(t)
+	conn := decodeBody[connectionDTO](t, f.do("POST", "/api/connect", connectBody(v)))
+	if conn.SSHDPasswords != "on" || !conn.PasswordLogin {
+		t.Fatalf("connection = %+v, want sshd taking passwords", conn)
+	}
+
+	key := decodeBody[keyLoginDTO](t, f.do("POST", "/api/key-login", nil))
+	if key.Outcome != "done" {
+		t.Fatalf("key login = %+v", key)
+	}
+	if st := decodeBody[stateDTO](t, f.do("GET", "/api/state", nil)); st.Connection.SSHDPasswords != "off" {
+		t.Fatalf("after key login sshd passwords = %q, want off", st.Connection.SSHDPasswords)
+	}
+
+	// Coming back later with that key: nothing left to recommend.
+	f.do("POST", "/api/disconnect", nil)
+	privateKey, err := os.ReadFile(key.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{"host": "127.0.0.1", "port": v.SSH.Port(), "user": deploytest.User, "privateKey": string(privateKey)}
+	v.Set(func(v *deploytest.VPS) { v.SudoNoPassword = true })
+	conn = decodeBody[connectionDTO](t, f.do("POST", "/api/connect", body))
+	if conn.SSHDPasswords != "off" || conn.PasswordLogin {
+		t.Fatalf("connection with the key = %+v, want sshd refusing passwords", conn)
+	}
+
+	f.do("POST", "/api/disconnect", nil)
+	v.Set(func(v *deploytest.VPS) { v.SSHDSilent = true })
+	conn = decodeBody[connectionDTO](t, f.do("POST", "/api/connect", body))
+	if conn.SSHDPasswords != "unknown" {
+		t.Fatalf("connection while sshd -T fails = %+v, want unknown", conn)
 	}
 }

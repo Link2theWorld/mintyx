@@ -5,15 +5,27 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ysuhao/mintyx-next/internal/model"
 )
 
-func nullableExpiry(c *model.Client) any {
-	if c.ExpiresAt == nil {
+func nullableTime(t *time.Time) any {
+	if t == nil {
 		return nil
 	}
-	return formatTime(*c.ExpiresAt)
+	return formatTime(*t)
+}
+
+func parseNullableTime(v sql.NullString) (*time.Time, error) {
+	if !v.Valid {
+		return nil, nil
+	}
+	t, err := parseTime(v.String)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 func (s *Store) CreateClient(ctx context.Context, c *model.Client) error {
@@ -22,9 +34,10 @@ func (s *Store) CreateClient(ctx context.Context, c *model.Client) error {
 	}
 	created := now()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO clients (name, secret, sub_token, disabled, quota_bytes, expires_at, used_up, used_down, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Secret, c.SubToken, string(c.Disabled), c.QuotaBytes, nullableExpiry(c), c.UsedUp, c.UsedDown, formatTime(created))
+		`INSERT INTO clients (name, secret, sub_token, disabled, quota_bytes, expires_at, quota_reset_day, cycle_start,
+		 used_up, used_down, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Secret, c.SubToken, string(c.Disabled), c.QuotaBytes, nullableTime(c.ExpiresAt), c.QuotaResetDay,
+		nullableTime(c.CycleStart), c.UsedUp, c.UsedDown, formatTime(created))
 	if err != nil {
 		return mapErr(err)
 	}
@@ -36,12 +49,13 @@ func (s *Store) CreateClient(ctx context.Context, c *model.Client) error {
 	return nil
 }
 
-// UpdateClient writes the admin-editable fields only. Usage counters belong to
-// AddTraffic/ResetTraffic and Disabled to SetClientDisabled, so they never race.
+// UpdateClient writes the admin-editable fields only, the cycle settings included. Usage
+// counters belong to AddTraffic/ResetTraffic/StartCycle and Disabled to SetClientDisabled.
 func (s *Store) UpdateClient(ctx context.Context, c *model.Client) error {
 	return expectOneRow(s.db.ExecContext(ctx,
-		`UPDATE clients SET name = ?, secret = ?, sub_token = ?, quota_bytes = ?, expires_at = ? WHERE id = ?`,
-		c.Name, c.Secret, c.SubToken, c.QuotaBytes, nullableExpiry(c), c.ID))
+		`UPDATE clients SET name = ?, secret = ?, sub_token = ?, quota_bytes = ?, expires_at = ?, quota_reset_day = ?,
+		 cycle_start = ? WHERE id = ?`,
+		c.Name, c.Secret, c.SubToken, c.QuotaBytes, nullableTime(c.ExpiresAt), c.QuotaResetDay, nullableTime(c.CycleStart), c.ID))
 }
 
 func (s *Store) DeleteClient(ctx context.Context, id int64) error {
@@ -90,13 +104,34 @@ func (s *Store) ResetTraffic(ctx context.Context, id int64) error {
 	return expectOneRow(s.db.ExecContext(ctx, `UPDATE clients SET used_up = 0, used_down = 0 WHERE id = ?`, id))
 }
 
-const clientCols = `id, name, secret, sub_token, disabled, quota_bytes, expires_at, used_up, used_down, created_at`
+// StartCycle moves the client into the monthly cycle that began at start, zeroing its usage
+// when zeroUsage is set. It applies only if the stored cycle is older (or unset), so running it
+// again for the same cycle, after a restart or a missed tick, does nothing; started reports
+// whether it applied.
+func (s *Store) StartCycle(ctx context.Context, id int64, start time.Time, zeroUsage bool) (started bool, err error) {
+	query := `UPDATE clients SET cycle_start = ? WHERE id = ? AND (cycle_start IS NULL OR cycle_start < ?)`
+	if zeroUsage {
+		query = `UPDATE clients SET cycle_start = ?, used_up = 0, used_down = 0
+		 WHERE id = ? AND (cycle_start IS NULL OR cycle_start < ?)`
+	}
+	at := formatTime(start)
+	res, err := s.db.ExecContext(ctx, query, at, id, at)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+const clientCols = `id, name, secret, sub_token, disabled, quota_bytes, expires_at, quota_reset_day, cycle_start,
+	used_up, used_down, created_at`
 
 func scanClient(row interface{ Scan(...any) error }) (model.Client, error) {
 	var c model.Client
 	var disabled, created string
-	var expires sql.NullString
-	if err := row.Scan(&c.ID, &c.Name, &c.Secret, &c.SubToken, &disabled, &c.QuotaBytes, &expires, &c.UsedUp, &c.UsedDown, &created); err != nil {
+	var expires, cycle sql.NullString
+	if err := row.Scan(&c.ID, &c.Name, &c.Secret, &c.SubToken, &disabled, &c.QuotaBytes, &expires, &c.QuotaResetDay, &cycle,
+		&c.UsedUp, &c.UsedDown, &created); err != nil {
 		return model.Client{}, err
 	}
 	c.Disabled = model.DisabledReason(disabled)
@@ -104,12 +139,11 @@ func scanClient(row interface{ Scan(...any) error }) (model.Client, error) {
 	if c.CreatedAt, err = parseTime(created); err != nil {
 		return model.Client{}, err
 	}
-	if expires.Valid {
-		t, err := parseTime(expires.String)
-		if err != nil {
-			return model.Client{}, err
-		}
-		c.ExpiresAt = &t
+	if c.ExpiresAt, err = parseNullableTime(expires); err != nil {
+		return model.Client{}, err
+	}
+	if c.CycleStart, err = parseNullableTime(cycle); err != nil {
+		return model.Client{}, err
 	}
 	return c, nil
 }

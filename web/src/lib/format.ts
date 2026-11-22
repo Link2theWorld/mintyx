@@ -54,6 +54,18 @@ export function formatDate(iso: string): string {
   return d.isValid() ? d.format("YYYY-MM-DD") : iso;
 }
 
+/** The calendar date iso falls on in an IANA zone (e.g. the panel's), as YYYY-MM-DD. */
+export function formatDateInZone(iso: string, zone: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  try {
+    // en-CA formats as YYYY-MM-DD.
+    return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  } catch {
+    return formatDate(iso);
+  }
+}
+
 /** Calendar days from today until iso's local date: 0 = today, negative = an earlier day. */
 export function daysUntil(iso: string, now: Date = new Date()): number {
   return dayjs(iso).startOf("day").diff(dayjs(now).startOf("day"), "day");

@@ -254,6 +254,19 @@ func TestDeployRejectsUnknownRegion(t *testing.T) {
 	}
 }
 
+func TestResetAdminPasswordNeedsADeployedPanel(t *testing.T) {
+	v := deploytest.New(t)
+	c := dialVPS(t, v, testKnownHosts(t))
+	if _, _, err := c.ResetAdminPassword(testContext(t)); !errors.Is(err, ErrNotDeployed) {
+		t.Fatalf("reset on a bare server = %v, want ErrNotDeployed", err)
+	}
+	for _, r := range v.Ran() {
+		if r.Name == "reset-password" && !r.AsRoot {
+			t.Fatal("reset-password ran without root")
+		}
+	}
+}
+
 // An upgrade that uploads the new build and then stops (here: cancelled before the Xray step)
 // leaves the old process running. The retry finds the file already in place and must still
 // restart the service, or it reports success while the old version keeps serving.

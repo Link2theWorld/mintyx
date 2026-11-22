@@ -22,15 +22,53 @@ import (
 type fakeEngine struct {
 	mu       sync.Mutex
 	syncs    int
+	checks   int
 	syncErr  error
 	restarts int
+
+	// With refuse set (see refuseWhen), Sync and Check judge what the store holds, like Xray
+	// judging the config built from it, and Sync skips judging the state it last applied, as
+	// the real engine skips asking about the config already running.
+	st      *store.Store
+	refuse  func(context.Context) error
+	applied string
 }
 
-func (e *fakeEngine) Sync(context.Context) error {
+func (e *fakeEngine) Sync(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.syncs++
-	return e.syncErr
+	if e.refuse == nil {
+		return e.syncErr
+	}
+	state := e.state(ctx)
+	if state == e.applied {
+		return nil
+	}
+	if err := e.refuse(ctx); err != nil {
+		return err
+	}
+	e.applied = state
+	return nil
+}
+
+func (e *fakeEngine) Check(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.checks++
+	if e.refuse == nil {
+		return e.syncErr
+	}
+	return e.refuse(ctx)
+}
+
+// state stands for the config built from the store: everything Xray would be given.
+func (e *fakeEngine) state(ctx context.Context) string {
+	lines, _ := e.st.ListLines(ctx)
+	clients, _ := e.st.ListClients(ctx)
+	exits, _ := e.st.ListExits(ctx)
+	b, _ := json.Marshal([]any{lines, clients, exits})
+	return string(b)
 }
 
 func (e *fakeEngine) Restart(context.Context) error {
@@ -52,10 +90,35 @@ func (e *fakeEngine) syncCount() int {
 	return e.syncs
 }
 
+func (e *fakeEngine) checkCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.checks
+}
+
 func (e *fakeEngine) failSync(err error) {
 	e.mu.Lock()
 	e.syncErr = err
 	e.mu.Unlock()
+}
+
+// refuseWhen makes Sync and Check fail with ErrConfigRejected whenever bad reports the stored
+// state as one Xray would refuse; nil goes back to syncErr. Whatever the store holds now counts
+// as running already, as if bad started to hold (a certificate went) while Xray kept going.
+func (e *fakeEngine) refuseWhen(bad func(context.Context) (string, bool)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if bad == nil {
+		e.refuse = nil
+		return
+	}
+	e.applied = e.state(context.Background())
+	e.refuse = func(ctx context.Context) error {
+		if why, refused := bad(ctx); refused {
+			return fmt.Errorf("%w: %s", ErrConfigRejected, why)
+		}
+		return nil
+	}
 }
 
 // fakeKeys is deterministic so tests can tell which key pair a line carries.
@@ -109,7 +172,7 @@ func newFixture(t *testing.T, mod func(*Config)) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	eng := &fakeEngine{}
+	eng := &fakeEngine{st: st}
 	cfg := Config{Store: st, Engine: eng, Keys: &fakeKeys{}, Static: testStatic, ReservedPorts: []int{2096},
 		// No test may reach the real package manager.
 		Apps: hostapps.New(hostapps.Options{Unsupported: func() string { return hostapps.ReasonOS }}),

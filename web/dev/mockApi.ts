@@ -10,6 +10,17 @@ const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
 const DAY = 86_400_000;
 const GB = 1024 ** 3;
 
+/** Fills nextResetAt the way the panel does, close enough for a mock (local midnight). */
+function withCycle(c: Json): Json {
+  const day = Number(c.quotaResetDay ?? 0);
+  if (!day) return { ...c, quotaResetDay: 0, nextResetAt: null };
+  const now = new Date();
+  const at = (y: number, m: number) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+  let next = at(now.getFullYear(), now.getMonth());
+  if (next <= now) next = at(now.getFullYear(), now.getMonth() + 1);
+  return { ...c, nextResetAt: next.toISOString() };
+}
+
 const state = {
   needsSetup: process.env.MINTYX_MOCK_SETUP === "1",
   username: null as string | null,
@@ -27,15 +38,21 @@ const state = {
       id: 3, name: "UDP 加速", protocol: "hysteria2", port: 8443, enabled: false, host: "", createdAt: iso(-3 * DAY),
       hysteria2: { domain: "hy.example.com", certFile: "/etc/ssl/hy/fullchain.pem", keyFile: "/etc/ssl/hy/privkey.pem", obfsPassword: "" },
     },
-  ] as Json[],
+  ].map((l) => ({ ...l, exitId: l.id === 1 ? 1 : null })) as Json[],
   clients: [
     { id: 1, name: "我的手机", disabled: "", quotaBytes: 0, expiresAt: null, usedUp: 3.1 * GB, usedDown: 48.7 * GB, createdAt: iso(-40 * DAY) },
     { id: 2, name: "妈妈的平板", disabled: "", quotaBytes: 50 * GB, expiresAt: iso(2 * DAY), usedUp: 2 * GB, usedDown: 44 * GB, createdAt: iso(-30 * DAY) },
     { id: 3, name: "小王", disabled: "quota", quotaBytes: 20 * GB, expiresAt: iso(60 * DAY), usedUp: 1 * GB, usedDown: 19.2 * GB, createdAt: iso(-25 * DAY) },
     { id: 4, name: "旧笔记本", disabled: "expired", quotaBytes: 0, expiresAt: iso(-5 * DAY), usedUp: 0.2 * GB, usedDown: 3 * GB, createdAt: iso(-90 * DAY) },
     { id: 5, name: "办公室电脑", disabled: "manual", quotaBytes: 100 * GB, expiresAt: iso(200 * DAY), usedUp: 0, usedDown: 12 * GB, createdAt: iso(-10 * DAY) },
-  ].map((c) => ({ ...c, usedUp: Math.round(c.usedUp), usedDown: Math.round(c.usedDown) })) as Json[],
-  settings: { publicHost: "vps.example.com", subscriptionBaseUrl: "" },
+  ].map((c) => withCycle({ ...c, usedUp: Math.round(c.usedUp), usedDown: Math.round(c.usedDown), quotaResetDay: c.id === 2 ? 1 : 0 })),
+  exits: [
+    { id: 1, name: "大阪中转", region: "jp", nextId: 2, createdAt: iso(-3 * DAY), summary: { protocol: "shadowsocks", host: "203.0.113.20", port: 8388, network: "", security: "none", serverName: "", flow: "", method: "2022-blake3-aes-128-gcm", auth: false, obfs: false, pinned: false, plaintext: false, udp: false } },
+    { id: 2, name: "首尔落地", region: "kr", nextId: null, createdAt: iso(-3 * DAY), summary: { protocol: "vless", host: "198.51.100.8", port: 443, network: "raw", security: "reality", serverName: "www.samsung.com", flow: "xtls-rprx-vision", method: "", auth: false, obfs: false, pinned: false, plaintext: false, udp: false } },
+    { id: 3, name: "新加坡 HY2", region: "sg", nextId: null, createdAt: iso(-1 * DAY), summary: { protocol: "hysteria2", host: "sg.example.net", port: 443, network: "", security: "tls", serverName: "sg.example.net", flow: "", method: "", auth: false, obfs: true, pinned: false, plaintext: false, udp: true } },
+  ] as Json[],
+  layout: {} as Json,
+  settings: { publicHost: "vps.example.com", subscriptionBaseUrl: "", timeZone: "Asia/Seoul", serverRegion: "jp" },
   reach: {
     config: {
       enabled: true, intervalMinutes: 30, confirmRounds: 2,
@@ -175,7 +192,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (path === "/api/clients" && method === "GET") return send(res, 200, { clients: state.clients });
   if (path === "/api/clients" && method === "POST") {
     const b = await readBody(req);
-    state.clients.push({ ...b, id: state.nextId++, disabled: "", usedUp: 0, usedDown: 0, createdAt: new Date().toISOString() });
+    state.clients.push(withCycle({ ...b, id: state.nextId++, disabled: "", usedUp: 0, usedDown: 0, createdAt: new Date().toISOString() }));
     return send(res, 201, state.clients[state.clients.length - 1]);
   }
   const clientMatch = /^\/api\/clients\/(\d+)(?:\/([a-z-]+))?$/.exec(path);
@@ -201,7 +218,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (op === "enable") { c.disabled = ""; return send(res, 204); }
     if (op === "reset-traffic") { c.usedUp = 0; c.usedDown = 0; if (c.disabled === "quota") c.disabled = ""; return send(res, 204); }
     if (op === "rotate") return send(res, 204);
-    Object.assign(c, await readBody(req));
+    Object.assign(c, withCycle({ ...c, ...(await readBody(req)) }));
     return send(res, 200, c);
   }
 
@@ -247,10 +264,71 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     const rows = state.audit.filter((e) => before === null || e.id < Number(before)).slice(0, limit);
     return send(res, 200, { entries: rows });
   }
+  if (path === "/api/exits" && method === "GET") return send(res, 200, { exits: state.exits });
+  if (path === "/api/exits/parse" && method === "POST") {
+    const b = await readBody(req);
+    const link = typeof b.link === "string" ? b.link : "";
+    const m = /^(vless|trojan|ss|socks5?|hysteria2|hy2):\/\/(?:[^@]*@)?([^:/?#]+):(\d+)/.exec(link);
+    if (!m) return fail(res, 400, "invalid", "unsupported link", "link.scheme");
+    const proto = m[1] === "ss" ? "shadowsocks" : m[1] === "hy2" ? "hysteria2" : m[1]?.startsWith("socks") ? "socks" : m[1];
+    const name = decodeURIComponent(link.split("#")[1] ?? "");
+    return send(res, 200, { name, summary: { protocol: proto, host: m[2], port: Number(m[3]), network: proto === "vless" || proto === "trojan" ? "raw" : "", security: link.includes("security=reality") ? "reality" : proto === "hysteria2" || proto === "trojan" || link.includes("security=tls") ? "tls" : "none", serverName: "", flow: "", method: "", auth: false, obfs: link.includes("obfs="), pinned: false, plaintext: proto === "socks", udp: proto === "hysteria2" } });
+  }
+  if (path === "/api/exits" && method === "POST") {
+    const b = await readBody(req);
+    const link = typeof b.link === "string" ? b.link : "";
+    const host = /@([^:/?#]+):(\d+)/.exec(link);
+    const e = { id: state.nextId++, name: (typeof b.name === "string" && b.name) || decodeURIComponent(link.split("#")[1] ?? "") || "出口", region: typeof b.region === "string" ? b.region : "", nextId: null, createdAt: new Date().toISOString(),
+      summary: { protocol: link.startsWith("ss") ? "shadowsocks" : link.startsWith("hy") ? "hysteria2" : link.startsWith("trojan") ? "trojan" : link.startsWith("socks") ? "socks" : "vless", host: host?.[1] ?? "203.0.113.99", port: Number(host?.[2] ?? 443), network: "", security: "tls", serverName: "", flow: "", method: "", auth: false, obfs: false, pinned: false, plaintext: false, udp: link.startsWith("hy") } };
+    state.exits.push(e);
+    return send(res, 201, e);
+  }
+  if (path === "/api/exits/latency") {
+    return send(res, 200, { refreshing: false, exits: state.exits.map((e) => {
+      const s = e.summary as Json;
+      if (s.udp) return { id: e.id, rttMs: null, measuredAt: null, unmeasured: "udp" };
+      if (state.exits.some((o) => o.nextId === e.id) && !state.lines.some((l) => l.exitId === e.id)) return { id: e.id, rttMs: null, measuredAt: null, unmeasured: "inner" };
+      return { id: e.id, rttMs: 40 + Number(e.id) * 37, measuredAt: new Date().toISOString() };
+    }) });
+  }
+  const exitMatch = /^\/api\/exits\/(\d+)(?:\/(copy))?$/.exec(path);
+  if (exitMatch) {
+    const id = Number(exitMatch[1]);
+    const e = state.exits.find((x) => x.id === id);
+    if (!e) return fail(res, 404, "not_found", "no such exit");
+    if (exitMatch[2] === "copy") {
+      const c = { ...e, id: state.nextId++, name: `${String(e.name)} (2)`, nextId: null };
+      state.exits.push(c);
+      return send(res, 201, c);
+    }
+    if (method === "DELETE") {
+      const used = state.lines.some((l) => l.exitId === id) || state.exits.some((x) => x.nextId === id);
+      if (used && url.searchParams.get("unlink") !== "1") return fail(res, 409, "conflict", "still used by line 东京直连", "exit");
+      for (const l of state.lines) if (l.exitId === id) l.exitId = null;
+      for (const x of state.exits) if (x.nextId === id) x.nextId = null;
+      state.exits = state.exits.filter((x) => x.id !== id);
+      return send(res, 204);
+    }
+    const b = await readBody(req);
+    Object.assign(e, { name: typeof b.name === "string" && b.name ? b.name : e.name, region: typeof b.region === "string" ? b.region : e.region });
+    return send(res, 200, e);
+  }
+  if (path === "/api/routing" && method === "PUT") {
+    const b = await readBody(req) as { lines?: { id: number; exitId: number | null }[]; exits?: { id: number; nextId: number | null }[] };
+    for (const r of b.lines ?? []) { const l = state.lines.find((x) => x.id === r.id); if (l) l.exitId = r.exitId; }
+    for (const r of b.exits ?? []) { const x = state.exits.find((y) => y.id === r.id); if (x) x.nextId = r.nextId; }
+    return send(res, 200, { lines: state.lines.map((l) => ({ id: l.id, exitId: l.exitId })), exits: state.exits.map((x) => ({ id: x.id, nextId: x.nextId })) });
+  }
+  if (path === "/api/graph/layout" && method === "GET") return send(res, 200, { positions: state.layout });
+  if (path === "/api/graph/layout" && method === "PUT") {
+    const b = await readBody(req);
+    state.layout = (b.positions ?? {}) as Json;
+    return send(res, 204);
+  }
   if (path === "/api/settings" && method === "GET") return send(res, 200, state.settings);
   if (path === "/api/settings" && method === "PUT") {
     const b = await readBody(req);
-    state.settings = { publicHost: String(b.publicHost), subscriptionBaseUrl: String(b.subscriptionBaseUrl) };
+    state.settings = { publicHost: String(b.publicHost), subscriptionBaseUrl: String(b.subscriptionBaseUrl), timeZone: typeof b.timeZone === "string" ? b.timeZone : state.settings.timeZone, serverRegion: typeof b.serverRegion === "string" ? b.serverRegion : state.settings.serverRegion };
     return send(res, 204);
   }
   if (path === "/api/host/ssh" && method === "GET") return send(res, 200, { passwordLogin: "on" });

@@ -6,7 +6,7 @@ const GB = 1024 ** 3;
 const now = new Date("2026-06-01T12:00:00Z");
 
 function client(over: Partial<Client>): Client {
-  return { id: 1, name: "c", disabled: "", quotaBytes: 0, expiresAt: null, usedUp: 0, usedDown: 0, createdAt: "2026-01-01T00:00:00Z", ...over };
+  return { id: 1, name: "c", disabled: "", quotaBytes: 0, expiresAt: null, usedUp: 0, usedDown: 0, createdAt: "2026-01-01T00:00:00Z", quotaResetDay: 0, nextResetAt: null, ...over };
 }
 
 describe("clientStatus", () => {

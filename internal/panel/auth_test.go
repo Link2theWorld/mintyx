@@ -1,7 +1,9 @@
 package panel
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -227,4 +229,58 @@ func TestSessionExpires(t *testing.T) {
 	c := f.setup()
 	*f.clock = f.clock.Add(sessionTTL)
 	expectStatus(t, f.do("GET", "/api/lines", nil, withCookie(c)), http.StatusUnauthorized)
+}
+
+// The reset runs in another process (`mintyx reset-password`), so it reaches the running
+// panel only through the database; sessions opened with the old password must still end.
+func TestResetAdminPasswordEndsSessionsOfTheRunningPanel(t *testing.T) {
+	f := newFixture(t, nil)
+	a := f.setup()
+	expectStatus(t, f.do("GET", "/api/lines", nil, withCookie(a)), http.StatusOK)
+
+	user, password, err := ResetAdminPassword(context.Background(), f.st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user != testUser || validatePassword("new", password) != nil || password == testPassword {
+		t.Fatalf("reset gave %q / %q, want the admin account and a usable new password", user, password)
+	}
+
+	expectError(t, f.do("GET", "/api/lines", nil, withCookie(a)), http.StatusUnauthorized, codeUnauthorized, "")
+	if got := strings.TrimSpace(f.do("GET", "/api/session", nil, withCookie(a)).Body.String()); got != `{"needsSetup":false,"username":null}` {
+		t.Fatalf("session with the old cookie = %s, want signed out", got)
+	}
+	w := f.do("POST", "/api/login", map[string]string{"username": testUser, "password": testPassword})
+	expectStatus(t, w, http.StatusUnauthorized)
+	w = f.do("POST", "/api/login", map[string]string{"username": testUser, "password": password})
+	expectStatus(t, w, http.StatusNoContent)
+	expectStatus(t, f.do("GET", "/api/lines", nil, withCookie(sessionCookieOf(t, w))), http.StatusOK)
+
+	entries, err := f.st.ListAudit(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Action == "password.reset" && e.Target == testUser {
+			found = true
+		}
+		if strings.Contains(e.Detail, password) {
+			t.Fatalf("the new password ended up in the audit log: %+v", e)
+		}
+	}
+	if !found {
+		t.Fatalf("audit = %+v, want a password.reset entry", entries)
+	}
+}
+
+func TestResetAdminPasswordNeedsAnAdmin(t *testing.T) {
+	f := newFixture(t, nil)
+	if _, _, err := ResetAdminPassword(context.Background(), f.st); !errors.Is(err, ErrNoAdmin) {
+		t.Fatalf("reset before setup = %v, want ErrNoAdmin", err)
+	}
+	w := f.do("GET", "/api/session", nil)
+	if got := strings.TrimSpace(w.Body.String()); got != `{"needsSetup":true,"username":null}` {
+		t.Fatalf("session after a refused reset = %s, want setup still open", got)
+	}
 }

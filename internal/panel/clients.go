@@ -20,17 +20,40 @@ type clientDTO struct {
 	UsedUp     int64                `json:"usedUp"`
 	UsedDown   int64                `json:"usedDown"`
 	CreatedAt  time.Time            `json:"createdAt"`
+	// QuotaResetDay is 0 for a quota that never resets; NextResetAt is then null.
+	QuotaResetDay int        `json:"quotaResetDay"`
+	NextResetAt   *time.Time `json:"nextResetAt"`
 }
 
-func clientToDTO(c model.Client) clientDTO {
-	return clientDTO{ID: c.ID, Name: c.Name, Disabled: c.Disabled, QuotaBytes: c.QuotaBytes, ExpiresAt: c.ExpiresAt,
-		UsedUp: c.UsedUp, UsedDown: c.UsedDown, CreatedAt: c.CreatedAt}
+func (s *Server) clientToDTO(c model.Client, loc *time.Location) clientDTO {
+	d := clientDTO{ID: c.ID, Name: c.Name, Disabled: c.Disabled, QuotaBytes: c.QuotaBytes, ExpiresAt: c.ExpiresAt,
+		UsedUp: c.UsedUp, UsedDown: c.UsedDown, CreatedAt: c.CreatedAt, QuotaResetDay: c.QuotaResetDay}
+	if c.QuotaResetDay > 0 {
+		next := quota.NextReset(c.QuotaResetDay, s.now(), loc).UTC()
+		d.NextResetAt = &next
+	}
+	return d
 }
 
 type clientInput struct {
-	Name       string     `json:"name"`
-	QuotaBytes int64      `json:"quotaBytes"`
-	ExpiresAt  *time.Time `json:"expiresAt"`
+	Name          string     `json:"name"`
+	QuotaBytes    int64      `json:"quotaBytes"`
+	ExpiresAt     *time.Time `json:"expiresAt"`
+	QuotaResetDay int        `json:"quotaResetDay"`
+}
+
+// setResetDay changes a client's monthly reset day. A new or changed day starts its cycle at
+// the current period without touching usage: the admin is choosing a calendar, not resetting.
+func (s *Server) setResetDay(c *model.Client, day int, loc *time.Location) {
+	if day == c.QuotaResetDay && (day == 0 || c.CycleStart != nil) {
+		return
+	}
+	c.QuotaResetDay = day
+	c.CycleStart = nil
+	if day > 0 {
+		start := quota.CycleStart(day, s.now(), loc).UTC()
+		c.CycleStart = &start
+	}
 }
 
 func (in *clientInput) validate() error {
@@ -40,6 +63,9 @@ func (in *clientInput) validate() error {
 	}
 	if in.QuotaBytes < 0 {
 		return invalid("quotaBytes", "quota must not be negative")
+	}
+	if in.QuotaResetDay < 0 || in.QuotaResetDay > 31 {
+		return invalid("quotaResetDay", "reset day must be 0 (never) or a day of the month from 1 to 31")
 	}
 	if in.ExpiresAt != nil {
 		t := in.ExpiresAt.UTC()
@@ -70,9 +96,14 @@ func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
 		s.writeFail(w, err)
 		return
 	}
+	loc, err := s.location(r.Context())
+	if err != nil {
+		s.writeFail(w, err)
+		return
+	}
 	out := make([]clientDTO, 0, len(clients))
 	for _, c := range clients {
-		out = append(out, clientToDTO(c))
+		out = append(out, s.clientToDTO(c, loc))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"clients": out})
 }
@@ -86,16 +117,22 @@ func (s *Server) createClient(w http.ResponseWriter, r *http.Request) {
 		s.writeFail(w, err)
 		return
 	}
+	loc, err := s.location(r.Context())
+	if err != nil {
+		s.writeFail(w, err)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c := model.Client{Name: in.Name, Secret: s.keys.NewUUID(), SubToken: newToken(), QuotaBytes: in.QuotaBytes, ExpiresAt: in.ExpiresAt}
+	s.setResetDay(&c, in.QuotaResetDay, loc)
 	c.Disabled = quota.Desired(c, s.now())
 	if err := s.st.CreateClient(r.Context(), &c); err != nil {
 		s.writeFail(w, err)
 		return
 	}
 	s.audit(r, "client.create", c.Name, "")
-	s.applyAndRespond(w, r, http.StatusCreated, clientToDTO(c))
+	s.applyAndRespond(w, r, http.StatusCreated, s.clientToDTO(c, loc))
 }
 
 func (s *Server) updateClient(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +148,11 @@ func (s *Server) updateClient(w http.ResponseWriter, r *http.Request) {
 		s.writeFail(w, err)
 		return
 	}
+	loc, err := s.location(r.Context())
+	if err != nil {
+		s.writeFail(w, err)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, err := s.st.GetClient(r.Context(), id)
@@ -119,6 +161,7 @@ func (s *Server) updateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.Name, c.QuotaBytes, c.ExpiresAt = in.Name, in.QuotaBytes, in.ExpiresAt
+	s.setResetDay(&c, in.QuotaResetDay, loc)
 	if err := s.st.UpdateClient(r.Context(), &c); err != nil {
 		s.writeFail(w, err)
 		return
@@ -128,7 +171,7 @@ func (s *Server) updateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "client.update", c.Name, "")
-	s.applyAndRespond(w, r, http.StatusOK, clientToDTO(c))
+	s.applyAndRespond(w, r, http.StatusOK, s.clientToDTO(c, loc))
 }
 
 func (s *Server) deleteClient(w http.ResponseWriter, r *http.Request) {

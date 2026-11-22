@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { readPref, writePref } from "../lib/storage";
-import { resolveTheme, themeBackground, themePrefs, type ThemeName, type ThemePref } from "./themes";
+import { paletteVariables, resolveTheme, themeBackground, themePrefs, type ThemeName, type ThemePref } from "./themes";
 
 export const THEME_KEY = "mintyx.theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
@@ -34,9 +34,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     root.dataset.theme = resolved;
     root.style.colorScheme = resolved === "day" ? "light" : "dark";
-    const bg = themeBackground(resolved);
-    document.body.style.background = bg;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", bg);
+    // The page itself (dotted sky, paper, ink) is drawn by app.css from these variables.
+    for (const [name, value] of Object.entries(paletteVariables(resolved))) root.style.setProperty(name, value);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeBackground(resolved));
   }, [resolved]);
 
   const value = useMemo(() => ({ pref, setPref, resolved }), [pref, setPref, resolved]);

@@ -75,6 +75,23 @@ CREATE TABLE attack_daily (
 	PRIMARY KEY (day, kind)
 ) WITHOUT ROWID;
 `,
+	`
+ALTER TABLE clients ADD COLUMN quota_reset_day INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE clients ADD COLUMN cycle_start TEXT;
+`,
+	`
+CREATE TABLE exits (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT    NOT NULL UNIQUE,
+	region     TEXT    NOT NULL DEFAULT '',
+	protocol   TEXT    NOT NULL,
+	params     TEXT    NOT NULL,
+	next_id    INTEGER REFERENCES exits(id) ON DELETE SET NULL,
+	created_at TEXT    NOT NULL,
+	CHECK (next_id IS NULL OR next_id <> id)
+);
+ALTER TABLE lines ADD COLUMN exit_id INTEGER REFERENCES exits(id) ON DELETE SET NULL;
+`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

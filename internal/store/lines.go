@@ -110,7 +110,7 @@ func (s *Store) CreateLine(ctx context.Context, l *model.Line) error {
 	return nil
 }
 
-// UpdateLine rewrites every field except ID and CreatedAt.
+// UpdateLine rewrites every field except ID, CreatedAt and ExitID (see SetRouting).
 func (s *Store) UpdateLine(ctx context.Context, l *model.Line) error {
 	params, err := encodeParams(l)
 	if err != nil {
@@ -125,14 +125,17 @@ func (s *Store) DeleteLine(ctx context.Context, id int64) error {
 	return expectOneRow(s.db.ExecContext(ctx, `DELETE FROM lines WHERE id = ?`, id))
 }
 
-const lineCols = `id, name, protocol, port, enabled, host, params, created_at`
+// lineCols includes exit_id, which only SetRouting writes; UpdateLine leaves it alone.
+const lineCols = `id, name, protocol, port, enabled, host, params, created_at, exit_id`
 
 func scanLine(row interface{ Scan(...any) error }) (model.Line, error) {
 	var l model.Line
 	var proto, params, created string
-	if err := row.Scan(&l.ID, &l.Name, &proto, &l.Port, &l.Enabled, &l.Host, &params, &created); err != nil {
+	var exitID sql.NullInt64
+	if err := row.Scan(&l.ID, &l.Name, &proto, &l.Port, &l.Enabled, &l.Host, &params, &created, &exitID); err != nil {
 		return model.Line{}, err
 	}
+	l.ExitID = exitID.Int64
 	l.Protocol = model.Protocol(proto)
 	var err error
 	if l.CreatedAt, err = parseTime(created); err != nil {

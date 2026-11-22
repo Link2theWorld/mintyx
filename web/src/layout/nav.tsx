@@ -1,4 +1,4 @@
-import { AppstoreAddOutlined, AppstoreOutlined, DashboardOutlined, HistoryOutlined, SafetyOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
+import { ApartmentOutlined, AppstoreAddOutlined, AppstoreOutlined, DashboardOutlined, HistoryOutlined, SafetyOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
 import type { ReactNode } from "react";
 import type { MessageKey } from "../i18n/zh";
 
@@ -11,7 +11,8 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   { path: "/", label: "nav.overview", icon: <DashboardOutlined /> },
   { path: "/lines", label: "nav.lines", icon: <AppstoreOutlined /> },
-  { path: "/clients", label: "nav.clients", icon: <TeamOutlined /> },
+  { path: "/visitors", label: "nav.clients", icon: <TeamOutlined /> },
+  { path: "/graph", label: "nav.graph", icon: <ApartmentOutlined /> },
   { path: "/apps", label: "nav.apps", icon: <AppstoreAddOutlined /> },
   { path: "/attacks", label: "nav.attacks", icon: <SafetyOutlined /> },
   { path: "/audit", label: "nav.audit", icon: <HistoryOutlined /> },
