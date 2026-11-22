@@ -168,7 +168,11 @@ chmod 700 "$HOME/.ssh"
 f="$HOME/.ssh/authorized_keys"
 touch "$f"
 chmod 600 "$f"
-grep -qxF -- "$KEY" "$f" || printf '%s\n' "$KEY" >> "$f"
+if ! grep -qxF -- "$KEY" "$f"; then
+  # A last line without a newline would swallow the key and break the one already on it.
+  [ -z "$(tail -c 1 "$f")" ] || echo >> "$f"
+  printf '%s\n' "$KEY" >> "$f"
+fi
 echo "key=added"
 `
 

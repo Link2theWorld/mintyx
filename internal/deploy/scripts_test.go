@@ -348,3 +348,36 @@ esac
 		})
 	}
 }
+
+// A file whose last line has no newline is common (hand-edited, or written by a provider's
+// console); appending straight onto it would glue both keys into one unusable line.
+func TestAuthorizedKeysAddAfterAnUnterminatedLine(t *testing.T) {
+	requireSh(t)
+	const existing = "ssh-ed25519 AAAAexisting"
+	const key = "ssh-ed25519 AAAAnew mintyx-deploy"
+	add := Script{Name: "authorized-keys-add", Body: authorizedKeysAddBody, Vars: []Var{{"KEY", key}}}
+	remove := Script{Name: "authorized-keys-remove", Body: authorizedKeysRemoveBody, Vars: []Var{{"KEY", key}}}
+	for _, tc := range []struct{ name, before, added, removed string }{
+		{"no trailing newline", existing, existing + "\n" + key + "\n", existing + "\n"},
+		{"empty file", "", key + "\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			file := filepath.Join(home, ".ssh", "authorized_keys")
+			os.Mkdir(filepath.Join(home, ".ssh"), 0o700)
+			os.WriteFile(file, []byte(tc.before), 0o600)
+			if r := runLocally(t, add, "", "HOME="+home); r.code != 0 {
+				t.Fatalf("add: exit %d, %s", r.code, r.stderr)
+			}
+			if got, _ := os.ReadFile(file); string(got) != tc.added {
+				t.Fatalf("after adding:\n%q\nwant\n%q", got, tc.added)
+			}
+			if r := runLocally(t, remove, "", "HOME="+home); r.code != 0 {
+				t.Fatalf("remove: exit %d, %s", r.code, r.stderr)
+			}
+			if got, _ := os.ReadFile(file); string(got) != tc.removed {
+				t.Fatalf("after removing:\n%q\nwant\n%q", got, tc.removed)
+			}
+		})
+	}
+}
