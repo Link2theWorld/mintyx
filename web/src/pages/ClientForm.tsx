@@ -5,7 +5,7 @@ import { ApiError } from "../api/client";
 import type { Client, ClientInput } from "../api/schemas";
 import { useI18n } from "../i18n/I18nProvider";
 import { errorText, fieldErrorText } from "../lib/errors";
-import { MAX_QUOTA_GB, bytesToGb, gbToBytes } from "../lib/format";
+import { BYTES_PER_GB, MAX_QUOTA_GB, gbToBytes } from "../lib/format";
 
 interface Values {
   name: string;
@@ -36,14 +36,19 @@ export function ClientForm({ client, onSubmit, onCancel }: {
 
   const initial: Values = {
     name: client?.name ?? "",
-    quotaGb: client ? bytesToGb(client.quotaBytes) : 0,
+    quotaGb: client ? client.quotaBytes / BYTES_PER_GB : 0,
     expires: client?.expiresAt ? dayjs(client.expiresAt) : null,
   };
 
   const finish = async (v: Values) => {
     setBusy(true);
     try {
-      await onSubmit(toClientInput(v));
+      const input = toClientInput(v);
+      if (client) {
+        if (v.quotaGb === initial.quotaGb) input.quotaBytes = client.quotaBytes;
+        if (v.expires?.valueOf() === initial.expires?.valueOf()) input.expiresAt = client.expiresAt;
+      }
+      await onSubmit(input);
     } catch (e) {
       const name = e instanceof ApiError && e.field ? serverFieldToForm[e.field] : undefined;
       if (e instanceof ApiError && name) form.setFields([{ name, errors: [fieldErrorText(e, t)] }]);
