@@ -1,6 +1,10 @@
 import type { z } from "zod";
 import {
   appsSchema,
+  attackConfigSchema,
+  attackReportSchema,
+  attacksResponseSchema,
+  attackSummarySchema,
   auditResponseSchema,
   clientsResponseSchema,
   engineLogsSchema,
@@ -17,6 +21,7 @@ import {
   shareSchema,
   statusSchema,
   type AppAction,
+  type AttackConfig,
   type ClientInput,
   type LineDraft,
   type Protocol,
@@ -184,4 +189,16 @@ export const api = {
   // Runs a whole round before answering, which can take half a minute.
   reachCheck: () => request("POST", "/api/reach/check", reachStatusSchema),
   reachTestEmail: (smtp: ReachSmtpInput) => request("POST", "/api/reach/test-email", reachTestEmailSchema, smtp),
+
+  attackSummary: () => request("GET", "/api/attacks/summary", attackSummarySchema),
+  attacks: (f: { kind?: string; country?: string; limit: number; offset: number }) => {
+    const q = new URLSearchParams({ limit: String(f.limit), offset: String(f.offset) });
+    if (f.kind) q.set("kind", f.kind);
+    if (f.country) q.set("country", f.country);
+    return request("GET", `/api/attacks?${q.toString()}`, attacksResponseSchema);
+  },
+  attackReport: (ip: string) => request("GET", `/api/attacks/${encodeURIComponent(ip)}/report`, attackReportSchema),
+  clearAttacks: () => request("DELETE", "/api/attacks", null),
+  attackConfig: () => request("GET", "/api/attacks/config", attackConfigSchema),
+  saveAttackConfig: (c: AttackConfig) => request("PUT", "/api/attacks/config", attackConfigSchema, c),
 };

@@ -26,6 +26,9 @@ type SupervisorOptions struct {
 	LogLines int
 	// Env, when non-nil, replaces the child's environment.
 	Env []string
+	// OnLine, when set, is shown every line Xray prints and says whether Logs should keep it.
+	// It runs on the goroutine copying Xray's output, so it must not block.
+	OnLine func(line string) (keep bool)
 }
 
 // Status is a snapshot of the supervised process.
@@ -137,8 +140,8 @@ type proc struct {
 func (s *Supervisor) spawn() (*proc, error) {
 	cmd := exec.Command(s.bin, "run", "-c", s.configPath)
 	cmd.Env = s.opt.Env
-	cmd.Stdout = s.logs.writer()
-	cmd.Stderr = s.logs.writer()
+	cmd.Stdout = s.logs.writer(s.opt.OnLine)
+	cmd.Stderr = s.logs.writer(s.opt.OnLine)
 	// Bounds Wait if a grandchild inherited the pipes and keeps them open.
 	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
@@ -318,11 +321,20 @@ func (r *ringLog) lines() []string {
 }
 
 // writer returns an io.Writer that splits one stream into lines; each stream needs its own for partial lines.
-func (r *ringLog) writer() *lineWriter { return &lineWriter{ring: r} }
+func (r *ringLog) writer(onLine func(string) bool) *lineWriter {
+	return &lineWriter{ring: r, onLine: onLine}
+}
 
 type lineWriter struct {
 	ring    *ringLog
+	onLine  func(string) bool
 	partial []byte
+}
+
+func (w *lineWriter) emit(line string) {
+	if w.onLine == nil || w.onLine(line) {
+		w.ring.add(line)
+	}
 }
 
 const maxLogLine = 4096
@@ -334,13 +346,13 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 		if i < 0 {
 			w.partial = append(w.partial, p...)
 			if len(w.partial) > maxLogLine {
-				w.ring.add(string(w.partial))
+				w.emit(string(w.partial))
 				w.partial = w.partial[:0]
 			}
 			break
 		}
 		line := append(w.partial, p[:i]...)
-		w.ring.add(string(bytes.TrimRight(line, "\r")))
+		w.emit(string(bytes.TrimRight(line, "\r")))
 		w.partial = w.partial[:0]
 		p = p[i+1:]
 	}

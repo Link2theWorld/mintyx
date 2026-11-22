@@ -237,7 +237,7 @@ func TestSupervisorConcurrentUse(t *testing.T) {
 
 func TestRingLogKeepsLastLinesAcrossPartialWrites(t *testing.T) {
 	r := newRingLog(3)
-	w := r.writer()
+	w := r.writer(nil)
 	for _, chunk := range []string{"one\ntw", "o\r\nthree\n", "four\nfive"} {
 		if _, err := w.Write([]byte(chunk)); err != nil {
 			t.Fatal(err)

@@ -184,6 +184,57 @@ Globalping 对匿名调用按来源 IP 限制每小时 250 次测试，一次测
 `action` 取值：`reach.configure`（`detail` 是改动的字段名，如 `enabled, smtp.password`）、
 `reach.check`、`reach.test_email`。
 
+## 攻击记录
+
+面板从本机日志里认出针对服务器的攻击，按来源 IP 汇总：sshd 的日志（经 systemd journal
+读取）和 Xray 的输出。只读本机日志，不联网。通过密钥登录成功过的 IP 视为管理员自己，
+不记录。来源在最后一次出现 30 天后删除。
+
+攻击类型 `kind`：`ssh_login`（对存在的账号尝试登录）、`ssh_invalid_user`（用不存在的
+用户名尝试登录）、`ssh_scan`（连上 SSH 端口但没到登录这一步）、`line_probe`（连到线路
+端口但握手不对）、`line_bad_auth`（协议正确但凭证无效）。sshd 对同一条连接会写多行日志，
+一条连接只算一次。
+
+归属地查询默认关闭。开启后面板用 RDAP 向 IANA（`data.iana.org`）和各地区互联网注册
+机构查询每个来源 IP 的注册国家、网络名称和举报邮箱，对方会看到被查询的 IP。
+
+```jsonc
+// AttackSummary
+{
+  "sources": 87, "hits": 34000, "retentionDays": 30,
+  "kinds":     [{"kind": "ssh_login", "hits": 6728, "sources": 35}],
+  "countries": [{"country": "NL", "sources": 15, "hits": 4180}],   // 只统计已查到归属的来源，最多 12 项
+  "networks":  [{"network": "Example B.V.", "country": "NL", "abuseEmail": "abuse@example.nl", "sources": 15, "hits": 4180}], // 最多 10 项
+  "daily":     [{"day": "2026-11-21", "hits": {"ssh_login": 120}}], // 最近 14 个 UTC 日期，从早到晚，没有攻击的日期也在
+  "lookup": {
+    "enabled": false, "lookedUp": 0, "pending": 87,
+    "error": "",          // 最近一次查询的英文错误，成功后清空
+    "pausedUntil": null   // 被注册机构限流时，暂停到这个时间
+  },
+  "sshLog": "ok"          // "starting"（还没读过）| "ok" | "unavailable"（本机没有 systemd journal）| "error"
+}
+
+// Attacker
+{
+  "ip": "203.0.113.5", "firstAt": "…", "lastAt": "…", "hits": 12,
+  "kinds": [{"kind": "ssh_login", "hits": 12, "firstAt": "…", "lastAt": "…"}],
+  "lookedUp": true,       // false：还没查，或没查到
+  "lookupError": "",      // "" | "not_found" | "error"
+  "country": "NL",        // 注册地，不一定是机器所在地。两位国家代码；注册机构只给了文字时为原文；可为 ""
+  "network": "Example B.V.", "netRange": "203.0.113.0/24",
+  "abuseEmail": "abuse@example.nl", "registry": "RIPE NCC"
+}
+```
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/attacks/summary` | AttackSummary |
+| GET | `/api/attacks?kind=&country=&limit=&offset=` | `{"attackers": [Attacker], "total": n}`，最近出现的在前。`kind`、`country` 可省略；`limit` 1–200，默认 50。未知的 `kind` 400 `invalid` |
+| GET | `/api/attacks/{ip}/report` | 给该来源所属网络的举报信草稿：`{"ip","to","network","subject","body"}`，英文。`to` 是举报邮箱，没查到时为 `""`。面板不发信，由管理员用自己的邮箱发出。没有这个来源时 404 |
+| DELETE | `/api/attacks` | 清空全部记录，204 |
+| GET | `/api/attacks/config` | `{"lookup": bool}` |
+| PUT | `/api/attacks/config` | 请求与响应同上 |
+
 ## 审计日志
 
 `GET /api/audit?limit=50&before=<id>` → `{"entries": [{"id","at","action","target","detail","remoteIp"}]}`，新的在前。

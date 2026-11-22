@@ -43,6 +43,38 @@ CREATE TABLE settings (
 	value TEXT NOT NULL
 );
 `,
+	`
+CREATE TABLE attackers (
+	ip          TEXT PRIMARY KEY,
+	first_at    TEXT    NOT NULL,
+	last_at     TEXT    NOT NULL,
+	hits        INTEGER NOT NULL,
+	trusted     INTEGER NOT NULL DEFAULT 0,
+	whois_at    TEXT    NOT NULL DEFAULT '',
+	whois_error TEXT    NOT NULL DEFAULT '',
+	country     TEXT    NOT NULL DEFAULT '',
+	network     TEXT    NOT NULL DEFAULT '',
+	net_range   TEXT    NOT NULL DEFAULT '',
+	abuse_email TEXT    NOT NULL DEFAULT '',
+	registry    TEXT    NOT NULL DEFAULT ''
+) WITHOUT ROWID;
+CREATE INDEX attackers_last_at ON attackers (last_at);
+CREATE TABLE attacker_kinds (
+	ip       TEXT    NOT NULL REFERENCES attackers (ip) ON DELETE CASCADE,
+	kind     TEXT    NOT NULL,
+	hits     INTEGER NOT NULL,
+	first_at TEXT    NOT NULL,
+	last_at  TEXT    NOT NULL,
+	samples  TEXT    NOT NULL,
+	PRIMARY KEY (ip, kind)
+) WITHOUT ROWID;
+CREATE TABLE attack_daily (
+	day  TEXT    NOT NULL,
+	kind TEXT    NOT NULL,
+	hits INTEGER NOT NULL,
+	PRIMARY KEY (day, kind)
+) WITHOUT ROWID;
+`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

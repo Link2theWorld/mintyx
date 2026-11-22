@@ -223,6 +223,43 @@ export const reachStatusSchema = z.object({
 export type ReachStatus = z.infer<typeof reachStatusSchema>;
 export const reachTestEmailSchema = z.object({ sent: z.boolean(), error: z.string() });
 
+export const attackKinds = ["ssh_login", "ssh_invalid_user", "ssh_scan", "line_probe", "line_bad_auth"] as const;
+export type AttackKind = (typeof attackKinds)[number];
+const count = z.number().int().nonnegative();
+export const attackSummarySchema = z.object({
+  sources: count,
+  hits: count,
+  retentionDays: z.number().int(),
+  // Kinds are plain strings so a newer server's extra kind does not break the page.
+  kinds: z.array(z.object({ kind: z.string(), hits: count, sources: count })),
+  countries: z.array(z.object({ country: z.string(), sources: count, hits: count })),
+  networks: z.array(z.object({ network: z.string(), country: z.string(), abuseEmail: z.string(), sources: count, hits: count })),
+  daily: z.array(z.object({ day: z.string(), hits: z.record(z.string(), count) })),
+  lookup: z.object({ enabled: z.boolean(), lookedUp: count, pending: count, error: z.string(), pausedUntil: z.string().nullable() }),
+  sshLog: z.string(),
+});
+export type AttackSummary = z.infer<typeof attackSummarySchema>;
+export const attackerSchema = z.object({
+  ip: z.string(),
+  firstAt: z.string(),
+  lastAt: z.string(),
+  hits: count,
+  kinds: z.array(z.object({ kind: z.string(), hits: count, firstAt: z.string(), lastAt: z.string() })),
+  lookedUp: z.boolean(),
+  lookupError: z.string(),
+  country: z.string(),
+  network: z.string(),
+  netRange: z.string(),
+  abuseEmail: z.string(),
+  registry: z.string(),
+});
+export type Attacker = z.infer<typeof attackerSchema>;
+export const attacksResponseSchema = z.object({ attackers: z.array(attackerSchema), total: count });
+export const attackReportSchema = z.object({ ip: z.string(), to: z.string(), network: z.string(), subject: z.string(), body: z.string() });
+export type AttackReport = z.infer<typeof attackReportSchema>;
+export const attackConfigSchema = z.object({ lookup: z.boolean() });
+export type AttackConfig = z.infer<typeof attackConfigSchema>;
+
 export const errorEnvelopeSchema = z.object({
   error: z.object({
     code: z.string(),

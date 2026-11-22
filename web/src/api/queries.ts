@@ -15,6 +15,11 @@ export const keys = {
   apps: ["apps"] as const,
   reachConfig: ["reach", "config"] as const,
   reachStatus: ["reach", "status"] as const,
+  attacks: ["attacks"] as const,
+  attackSummary: ["attacks", "summary"] as const,
+  attackList: (kind: string, country: string) => ["attacks", "list", kind, country] as const,
+  attackReport: (ip: string) => ["attacks", "report", ip] as const,
+  attackConfig: ["attacks", "config"] as const,
 };
 
 export const AUDIT_PAGE = 50;
@@ -47,4 +52,20 @@ export const useAudit = () =>
     queryFn: ({ pageParam }) => api.audit(AUDIT_PAGE, pageParam),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => (last.length < AUDIT_PAGE ? undefined : last[last.length - 1]?.id),
+  });
+
+export const ATTACK_PAGE = 50;
+export const useAttackSummary = () => useQuery({ queryKey: keys.attackSummary, queryFn: api.attackSummary, refetchInterval: 30_000 });
+export const useAttackConfig = () => useQuery({ queryKey: keys.attackConfig, queryFn: api.attackConfig });
+export const useAttackReport = (ip: string | null) =>
+  useQuery({ queryKey: keys.attackReport(ip ?? ""), queryFn: () => api.attackReport(ip ?? ""), enabled: ip !== null, gcTime: 0 });
+export const useAttackers = (kind: string, country: string) =>
+  useInfiniteQuery({
+    queryKey: keys.attackList(kind, country),
+    queryFn: ({ pageParam }) => api.attacks({ kind, country, limit: ATTACK_PAGE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, p) => n + p.attackers.length, 0);
+      return last.attackers.length < ATTACK_PAGE || loaded >= last.total ? undefined : loaded;
+    },
   });

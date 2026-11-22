@@ -11,6 +11,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import { useLogout } from "../layout/Shell";
 import { PreferencesBlock } from "../layout/Preferences";
 import { errorText } from "../lib/errors";
+import { AttackSettingsCard } from "./AttackSettingsCard";
 import { MIN_PASSWORD } from "./AuthPages";
 import { ReachSettingsCard } from "./ReachSettingsCard";
 
@@ -126,6 +127,7 @@ export function SettingsPage() {
       <Flex vertical gap={16}>
         <GeneralCard />
         <ReachSettingsCard />
+        <AttackSettingsCard />
         <PasswordCard />
         <Card title={t("settings.appearance")}>
           <div style={{ maxWidth: 420 }}><PreferencesBlock /></div>

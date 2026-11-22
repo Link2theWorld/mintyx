@@ -19,8 +19,10 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ysuhao/mintyx-next/internal/attack"
 	"github.com/ysuhao/mintyx-next/internal/hostapps"
 	"github.com/ysuhao/mintyx-next/internal/hostcheck"
+	"github.com/ysuhao/mintyx-next/internal/rdap"
 	"github.com/ysuhao/mintyx-next/internal/reach"
 	"github.com/ysuhao/mintyx-next/internal/store"
 )
@@ -72,7 +74,13 @@ type Config struct {
 	// Apps installs extra software on this server; nil manages the real host.
 	Apps *hostapps.Manager
 	// Reach runs the from-China reachability measurements; nil uses the public Globalping API.
-	Reach  reach.Pinger
+	Reach reach.Pinger
+	// Attacks is the collector Xray's output is fed to; nil records sshd's log only.
+	Attacks *attack.Collector
+	// Whois finds where an attack source is from; nil asks the address registries over RDAP.
+	Whois Whois
+	// SSHLog reads sshd's messages; nil reads the systemd journal.
+	SSHLog SSHLogReader
 	Logger *slog.Logger
 }
 
@@ -121,6 +129,11 @@ type Server struct {
 	// reachRunning admits one round at a time, whether the loop or the admin started it.
 	reachRunning atomic.Bool
 
+	attacks     *attack.Collector
+	whois       Whois
+	sshLog      SSHLogReader
+	lookupGap   time.Duration
+	attackState attackState
 	// life is cancelled by Close. Work that outlives the request that started it runs under it,
 	// so it still stops at shutdown.
 	life     context.Context
@@ -147,6 +160,16 @@ func New(cfg Config) (*Server, error) {
 		sessions:   map[[32]byte]session{},
 		limiter:    newLoginLimiter(),
 	}
+	if s.attacks = cfg.Attacks; s.attacks == nil {
+		s.attacks = attack.NewCollector()
+	}
+	if s.whois = cfg.Whois; s.whois == nil {
+		s.whois = rdap.New()
+	}
+	if s.sshLog = cfg.SSHLog; s.sshLog == nil {
+		s.sshLog = attack.ReadSSHJournal
+	}
+	s.lookupGap = attackLookupGap
 	if s.pinger = cfg.Reach; s.pinger == nil {
 		s.pinger = reach.NewClient()
 	}
@@ -201,6 +224,13 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/reach/status", s.authed(s.getReachStatus))
 	m.HandleFunc("POST /api/reach/check", s.authed(s.postReachCheck))
 	m.HandleFunc("POST /api/reach/test-email", s.authed(s.postReachTestEmail))
+
+	m.HandleFunc("GET /api/attacks", s.authed(s.listAttacks))
+	m.HandleFunc("DELETE /api/attacks", s.authed(s.clearAttacks))
+	m.HandleFunc("GET /api/attacks/summary", s.authed(s.getAttackSummary))
+	m.HandleFunc("GET /api/attacks/config", s.authed(s.getAttackConfig))
+	m.HandleFunc("PUT /api/attacks/config", s.authed(s.putAttackConfig))
+	m.HandleFunc("GET /api/attacks/{ip}/report", s.authed(s.getAttackReport))
 
 	m.HandleFunc("GET /api/engine", s.authed(s.getEngine))
 	m.HandleFunc("POST /api/engine/restart", s.authed(s.restartEngine))

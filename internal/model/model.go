@@ -119,3 +119,91 @@ type AuditEntry struct {
 	// RemoteIP is the address the admin's request came from.
 	RemoteIP string
 }
+
+// AttackSample is one log line kept as evidence of what a source did.
+type AttackSample struct {
+	At   time.Time `json:"at"`
+	Line string    `json:"line"`
+}
+
+// AttackHit is what one source did, of one kind, on one UTC day, since the collector was last drained.
+type AttackHit struct {
+	IP      string
+	Kind    string
+	Day     string
+	Count   int64
+	First   time.Time
+	Last    time.Time
+	Samples []AttackSample
+}
+
+// Whois is what the address registries say about the network a source is in.
+type Whois struct {
+	// Country is where the network is registered, which is not always where the machine is:
+	// an ISO 3166 code when the registry gave one, otherwise the registry's own wording, or "".
+	Country    string
+	Network    string
+	NetRange   string
+	AbuseEmail string
+	Registry   string
+}
+
+type AttackerKind struct {
+	Kind    string
+	Hits    int64
+	FirstAt time.Time
+	LastAt  time.Time
+	Samples []AttackSample
+}
+
+// Attacker is one source address and everything recorded about it.
+type Attacker struct {
+	IP      string
+	FirstAt time.Time
+	LastAt  time.Time
+	Hits    int64
+	Kinds   []AttackerKind
+	// LookedUpAt is nil until the registries were asked; LookupError says why the last try failed.
+	LookedUpAt  *time.Time
+	LookupError string
+	Whois
+}
+
+type AttackKindTotal struct {
+	Kind    string
+	Hits    int64
+	Sources int64
+}
+
+type AttackOrigin struct {
+	Country string
+	Sources int64
+	Hits    int64
+}
+
+type AttackNetwork struct {
+	Network    string
+	Country    string
+	AbuseEmail string
+	Sources    int64
+	Hits       int64
+}
+
+type AttackDay struct {
+	Day  string
+	Kind string
+	Hits int64
+}
+
+// AttackSummary aggregates every recorded source that is not the owner's own.
+type AttackSummary struct {
+	Sources   int64
+	Hits      int64
+	Kinds     []AttackKindTotal
+	Countries []AttackOrigin
+	Networks  []AttackNetwork
+	Daily     []AttackDay
+	// LookedUp and Pending count the sources whose network is known and still to be asked about.
+	LookedUp int64
+	Pending  int64
+}

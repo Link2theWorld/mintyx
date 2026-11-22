@@ -254,6 +254,36 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return send(res, 204);
   }
   if (path === "/api/host/ssh" && method === "GET") return send(res, 200, { passwordLogin: "on" });
+  if (path === "/api/attacks/config" && method === "GET") return send(res, 200, { lookup: attacks.lookup });
+  if (path === "/api/attacks/config" && method === "PUT") {
+    attacks.lookup = (await readBody(req)).lookup === true;
+    return send(res, 200, { lookup: attacks.lookup });
+  }
+  if (path === "/api/attacks/summary") return send(res, 200, attackSummary());
+  if (path === "/api/attacks" && method === "DELETE") {
+    attacks.sources = [];
+    return send(res, 204);
+  }
+  if (path === "/api/attacks" && method === "GET") {
+    const kind = url.searchParams.get("kind") ?? "";
+    const country = url.searchParams.get("country") ?? "";
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    const rows = attacks.sources
+      .filter((a) => (kind === "" || a.kinds.some((k) => k.kind === kind)) && (country === "" || (attacks.lookup && a.country === country)))
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+    return send(res, 200, { attackers: rows.slice(offset, offset + limit).map(attackerView), total: rows.length });
+  }
+  const report = /^\/api\/attacks\/(.+)\/report$/.exec(path);
+  if (report && method === "GET") {
+    const a = attacks.sources.find((x) => x.ip === decodeURIComponent(report[1] ?? ""));
+    if (!a) return fail(res, 404, "not_found", "not found");
+    const v = attackerView(a);
+    return send(res, 200, {
+      ip: a.ip, to: v.abuseEmail, network: v.network, subject: `Abuse report: SSH brute-force attempts from ${a.ip}`,
+      body: `Hello,\n\nA server I operate has been receiving unsolicited connection attempts from an IP address in your network. Please investigate and take appropriate action.\n\nSource IP:   ${a.ip}\nDestination: ${state.settings.publicHost}\n\nActivity (all times are UTC):\n${a.kinds.map((k) => `- ${k.kind}: ${String(k.hits)}`).join("\n")}\n\nThank you for your help.\n`,
+    });
+  }
   if (path === "/api/apps" && method === "GET") return send(res, 200, appsReply());
   const appMatch = /^\/api\/apps\/([a-z0-9]+)\/(install|remove|start|stop|restart)$/.exec(path);
   if (appMatch && method === "POST") {
@@ -281,6 +311,64 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return send(res, 202);
   }
   return fail(res, 404, "not_found", "no route");
+}
+
+const attackNets = [
+  { country: "CN", network: "Example Cloud Computing Co., Ltd.", netRange: "203.0.113.0/24", abuseEmail: "abuse@cloud.example", registry: "APNIC" },
+  { country: "US", network: "Example Hosting LLC", netRange: "198.51.100.0/24", abuseEmail: "abuse@hosting.example", registry: "ARIN" },
+  { country: "NL", network: "Example B.V.", netRange: "192.0.2.0/24", abuseEmail: "abuse@example.nl", registry: "RIPE NCC" },
+  { country: "BR", network: "Exemplo Telecom S.A.", netRange: "2001:db8::/32", abuseEmail: "", registry: "LACNIC" },
+  { country: "", network: "UNKNOWN-NET", netRange: "", abuseEmail: "", registry: "rdap.example" },
+];
+const attackKindNames = ["ssh_login", "ssh_invalid_user", "ssh_scan", "line_probe", "line_bad_auth"];
+const attacks = {
+  lookup: true,
+  sources: Array.from({ length: 87 }, (_, i) => {
+    const net = attackNets[(i * 7) % 11 % attackNets.length] ?? { country: "", network: "", netRange: "", abuseEmail: "", registry: "" };
+    const kinds = attackKindNames
+      .filter((_, k) => (i + k * 3) % 4 === 0 || k === i % 5)
+      .map((kind, k) => ({ kind, hits: 1 + ((i * 37 + k * 11) % 400), firstAt: iso(-(i + 2) * 5 * 3_600_000), lastAt: iso(-i * 23 * 60_000) }));
+    const ip = i % 9 === 4 ? `2001:db8:${i.toString(16)}::${(i * 3).toString(16)}` : `${["203.0.113", "198.51.100", "192.0.2"][i % 3] ?? ""}.${String(3 + i * 2)}`;
+    return { ip, firstAt: iso(-(i + 2) * 5 * 3_600_000), lastAt: iso(-i * 23 * 60_000), hits: kinds.reduce((n, k) => n + k.hits, 0), kinds, ...net, pending: i % 13 === 5 };
+  }),
+};
+
+function attackerView(a: (typeof attacks.sources)[number]) {
+  const known = attacks.lookup && !a.pending;
+  return {
+    ip: a.ip, firstAt: a.firstAt, lastAt: a.lastAt, hits: a.hits, kinds: a.kinds, lookedUp: known, lookupError: "",
+    country: known ? a.country : "", network: known ? a.network : "", netRange: known ? a.netRange : "",
+    abuseEmail: known ? a.abuseEmail : "", registry: known ? a.registry : "",
+  };
+}
+
+function attackSummary(): Json {
+  const views = attacks.sources.map(attackerView);
+  const kinds = attackKindNames.map((kind) => {
+    const with_ = views.filter((a) => a.kinds.some((k) => k.kind === kind));
+    return { kind, sources: with_.length, hits: with_.reduce((n, a) => n + (a.kinds.find((k) => k.kind === kind)?.hits ?? 0), 0) };
+  }).filter((k) => k.sources > 0);
+  const group = (key: (a: (typeof views)[number]) => string) => {
+    const m = new Map<string, { sources: number; hits: number; a: (typeof views)[number] }>();
+    for (const a of views.filter((v) => v.lookedUp)) {
+      const g = m.get(key(a)) ?? { sources: 0, hits: 0, a };
+      m.set(key(a), { ...g, sources: g.sources + 1, hits: g.hits + a.hits });
+    }
+    return [...m.values()];
+  };
+  return {
+    sources: views.length, hits: views.reduce((n, a) => n + a.hits, 0), retentionDays: 30, kinds,
+    countries: group((a) => a.country).sort((x, y) => y.sources - x.sources).map((g) => ({ country: g.a.country, sources: g.sources, hits: g.hits })),
+    networks: group((a) => a.network).sort((x, y) => y.hits - x.hits).map((g) => ({ network: g.a.network, country: g.a.country, abuseEmail: g.a.abuseEmail, sources: g.sources, hits: g.hits })),
+    daily: Array.from({ length: 14 }, (_, i) => ({
+      day: iso((i - 13) * DAY).slice(0, 10),
+      hits: Object.fromEntries(attackKindNames
+        .map((k, j): [string, number] => [k, views.length === 0 || i === 4 ? 0 : Math.round((60 + 50 * Math.sin(i * 0.9 + j)) * (5 - j) * (i === 10 ? 3 : 1))])
+        .filter(([, n]) => n > 0)),
+    })),
+    lookup: { enabled: attacks.lookup, lookedUp: views.filter((v) => v.lookedUp).length, pending: attacks.lookup ? views.filter((v) => !v.lookedUp).length : views.length, error: "", pausedUntil: null },
+    sshLog: "ok",
+  };
 }
 
 export function mockApi(): Plugin {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ysuhao/mintyx-next/internal/app"
+	"github.com/ysuhao/mintyx-next/internal/attack"
 	"github.com/ysuhao/mintyx-next/internal/engine"
 	"github.com/ysuhao/mintyx-next/internal/panel"
 	"github.com/ysuhao/mintyx-next/internal/probe"
@@ -62,8 +63,12 @@ func run() error {
 		return fmt.Errorf("-listen: %w", err)
 	}
 
-	opt := engine.Options{APIPort: *apiPort}
-	sup := engine.NewSupervisor(*xrayBin, filepath.Join(*dataDir, "xray.json"), engine.SupervisorOptions{})
+	// Xray reports a connection that fails a line's handshake only at info level, so it runs at
+	// info and XrayTap keeps the extra lines out of the log the panel shows.
+	attacks := attack.NewCollector()
+	opt := engine.Options{APIPort: *apiPort, LogLevel: "info"}
+	sup := engine.NewSupervisor(*xrayBin, filepath.Join(*dataDir, "xray.json"),
+		engine.SupervisorOptions{OnLine: app.XrayTap(attacks, time.Now)})
 	eng := app.NewEngine(st, sup, *xrayBin, opt, logger)
 	defer eng.Stop()
 
@@ -81,6 +86,7 @@ func run() error {
 		TrustProxy:    *trustProxy,
 		ReservedPorts: []int{panelPort, *apiPort},
 		CoverSite:     coverSite,
+		Attacks:       attacks,
 		Logger:        logger,
 	})
 	if err != nil {
@@ -100,6 +106,9 @@ func run() error {
 	reachRunner := srv.NewReachRunner(time.Minute)
 	reachRunner.Start(ctx)
 	defer reachRunner.Stop()
+	attackRunner := srv.NewAttackRunner(*tick)
+	attackRunner.Start(ctx)
+	defer attackRunner.Stop()
 
 	httpServer := &http.Server{
 		Addr:              *listen,
