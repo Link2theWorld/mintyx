@@ -191,7 +191,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusForbidden, codeForbidden, "missing X-Mintyx header", "")
 				return
 			}
-			if !sameOrigin(r) {
+			if !s.sameOrigin(r) {
 				writeErr(w, http.StatusForbidden, codeForbidden, "cross-origin request", "")
 				return
 			}
@@ -209,8 +209,8 @@ func safeMethod(m string) bool {
 	return m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions
 }
 
-// sameOrigin allows a missing Origin (non-browser clients) but otherwise requires its host to equal Host.
-func sameOrigin(r *http.Request) bool {
+// sameOrigin allows a missing Origin (non-browser clients) but otherwise requires the same scheme and host.
+func (s *Server) sameOrigin(r *http.Request) bool {
 	o := r.Header.Get("Origin")
 	if o == "" {
 		return true
@@ -219,7 +219,11 @@ func sameOrigin(r *http.Request) bool {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return false
 	}
-	return strings.EqualFold(stripDefaultPort(u.Host, u.Scheme), stripDefaultPort(r.Host, u.Scheme))
+	scheme := "http"
+	if s.isHTTPS(r) {
+		scheme = "https"
+	}
+	return u.Scheme == scheme && strings.EqualFold(stripDefaultPort(u.Host, scheme), stripDefaultPort(r.Host, scheme))
 }
 
 func stripDefaultPort(hostport, scheme string) string {

@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"crypto/tls"
 	"net/http"
 	"strings"
 	"testing"
@@ -94,6 +95,40 @@ func TestCSRFRules(t *testing.T) {
 	// Login is a state change too: a cross-site form must not be able to log the browser in.
 	w := f.do("POST", "/api/login", map[string]string{"username": testUser, "password": testPassword}, noMintyx())
 	expectError(t, w, http.StatusForbidden, codeForbidden, "")
+}
+
+func TestCSRFOriginIncludesScheme(t *testing.T) {
+	for _, tc := range []struct {
+		name, origin, host    string
+		tls, proxy, forwarded bool
+		want                  int
+	}{
+		{"http from https", "https://panel.test", "panel.test", false, false, false, http.StatusForbidden},
+		{"https from http", "http://panel.test", "panel.test", true, false, false, http.StatusForbidden},
+		{"https default port", "https://panel.test:443", "panel.test", true, false, false, http.StatusCreated},
+		{"http default port", "http://panel.test:80", "panel.test", false, false, false, http.StatusCreated},
+		{"trusted proxy https", "https://panel.test", "panel.test", false, true, true, http.StatusCreated},
+		{"trusted proxy rejects http", "http://panel.test", "panel.test", false, true, true, http.StatusForbidden},
+		{"untrusted forwarded https", "https://panel.test", "panel.test", false, false, true, http.StatusForbidden},
+		{"different port", "https://panel.test:8443", "panel.test", true, false, false, http.StatusForbidden},
+		{"missing origin", "", "panel.test", true, false, false, http.StatusCreated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, func(c *Config) { c.TrustProxy = tc.proxy })
+			cookie := f.setup()
+			w := f.do("POST", "/api/clients", map[string]any{"name": tc.name}, withCookie(cookie),
+				withHeader("Origin", tc.origin), func(r *http.Request) {
+					r.Host = tc.host
+					if tc.tls {
+						r.TLS = &tls.ConnectionState{}
+					}
+					if tc.forwarded {
+						r.Header.Set("X-Forwarded-Proto", "https")
+					}
+				})
+			expectStatus(t, w, tc.want)
+		})
+	}
 }
 
 func TestLoginThrottlingPerIP(t *testing.T) {
