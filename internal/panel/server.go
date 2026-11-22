@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ysuhao/mintyx-next/internal/hostcheck"
 	"github.com/ysuhao/mintyx-next/internal/store"
 )
 
@@ -62,6 +63,8 @@ type Config struct {
 	ReservedPorts []int
 	// CoverSite suggests a REALITY cover site reachable from this server; nil or "" suggests none.
 	CoverSite func(context.Context) string
+	// HostCheck answers GET /api/host/ssh; nil inspects the real sshd.
+	HostCheck *hostcheck.Checker
 	Logger    *slog.Logger
 }
 
@@ -85,6 +88,7 @@ type Server struct {
 	trustProxy bool
 	reserved   map[int]bool
 	coverSite  func(context.Context) string
+	hostCheck  *hostcheck.Checker
 	log        *slog.Logger
 	mux        *http.ServeMux
 	startedAt  time.Time
@@ -117,6 +121,7 @@ func New(cfg Config) (*Server, error) {
 		trustProxy: cfg.TrustProxy,
 		reserved:   map[int]bool{},
 		coverSite:  cfg.CoverSite,
+		hostCheck:  cfg.HostCheck,
 		log:        cfg.Logger,
 		now:        func() time.Time { return time.Now().UTC() },
 		bcryptCost: bcrypt.DefaultCost,
@@ -125,6 +130,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
+	}
+	if s.hostCheck == nil {
+		s.hostCheck = hostcheck.New(nil)
 	}
 	for _, p := range cfg.ReservedPorts {
 		s.reserved[p] = true
@@ -165,6 +173,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/audit", s.authed(s.listAudit))
 	m.HandleFunc("GET /api/settings", s.authed(s.getSettings))
 	m.HandleFunc("PUT /api/settings", s.authed(s.putSettings))
+	m.HandleFunc("GET /api/host/ssh", s.authed(s.getHostSSH))
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, codeNotFound, "no such endpoint", "")

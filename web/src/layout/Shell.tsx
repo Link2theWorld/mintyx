@@ -4,6 +4,7 @@ import { Button, Flex, Layout, Menu, Popover, Typography, theme } from "antd";
 import { BgColorsOutlined } from "@ant-design/icons";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { api } from "../api/client";
+import { GuidesButton } from "../components/Guides";
 import { useI18n } from "../i18n/I18nProvider";
 import { useIsMobile } from "../lib/useIsMobile";
 import { Logo } from "./Logo";
@@ -59,6 +60,7 @@ function DesktopShell() {
             />
           </nav>
           <div style={{ padding: "0 8px" }}>
+            <div style={{ marginBottom: 16 }}><GuidesButton /></div>
             <PreferencesBlock />
             <Button block icon={<LogoutOutlined />} style={{ marginTop: 16 }} onClick={() => void logout()}>
               {t("nav.logout")}
@@ -90,9 +92,12 @@ function MobileShell() {
           <Logo size={24} />
           <Typography.Text strong style={{ fontSize: 16 }}>{t("app.name")}</Typography.Text>
         </Flex>
-        <Popover trigger="click" placement="bottomRight" content={<div style={{ width: 260 }}><PreferencesBlock /></div>}>
-          <Button type="text" icon={<BgColorsOutlined />} aria-label={`${t("theme.label")} / ${t("lang.label")}`} />
-        </Popover>
+        <Flex align="center" gap={4}>
+          <GuidesButton compact />
+          <Popover trigger="click" placement="bottomRight" content={<div style={{ width: 260 }}><PreferencesBlock /></div>}>
+            <Button type="text" icon={<BgColorsOutlined />} aria-label={`${t("theme.label")} / ${t("lang.label")}`} />
+          </Popover>
+        </Flex>
       </header>
       <main className="page page-mobile">
         <Outlet />

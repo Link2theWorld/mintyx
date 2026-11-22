@@ -10,7 +10,9 @@ import { PageHeader } from "../components/PageHeader";
 import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
 import { errorText } from "../lib/errors";
+import { GuidesCard } from "../components/Guides";
 import { formatBytes, formatDateTime } from "../lib/format";
+import { SshPasswordWarning } from "./SshPasswordWarning";
 
 dayjs.extend(relativeTime);
 
@@ -137,10 +139,12 @@ export function OverviewPage() {
   return (
     <>
       <PageHeader title={t("overview.title")} />
+      <SshPasswordWarning />
       <Flex vertical gap={16}>
         <StatsRow />
         <EngineCard />
         <LogsCard />
+        <GuidesCard />
       </Flex>
     </>
   );

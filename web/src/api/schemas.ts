@@ -128,6 +128,9 @@ export const settingsSchema = z.object({
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
+export const hostSshSchema = z.object({ passwordLogin: z.enum(["on", "off", "unknown"]) });
+export type HostSsh = z.infer<typeof hostSshSchema>;
+
 export const errorEnvelopeSchema = z.object({
   error: z.object({
     code: z.string(),

@@ -11,6 +11,7 @@ export const keys = {
   status: ["status"] as const,
   audit: ["audit"] as const,
   settings: ["settings"] as const,
+  hostSsh: ["host", "ssh"] as const,
 };
 
 export const AUDIT_PAGE = 50;
@@ -24,6 +25,9 @@ export const useEngine = () => useQuery({ queryKey: keys.engine, queryFn: api.en
 export const useEngineLogs = () => useQuery({ queryKey: keys.engineLogs, queryFn: api.engineLogs, refetchInterval: 5_000 });
 export const useStatus = () => useQuery({ queryKey: keys.status, queryFn: api.status, refetchInterval: 15_000 });
 export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: api.settings });
+// sshd's configuration rarely changes; one look per visit is plenty.
+export const useHostSsh = (enabled: boolean) =>
+  useQuery({ queryKey: keys.hostSsh, queryFn: () => api.hostSsh(), enabled, staleTime: 5 * 60_000, retry: false });
 
 export const useAudit = () =>
   useInfiniteQuery({

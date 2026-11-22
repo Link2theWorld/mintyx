@@ -5,6 +5,7 @@ import {
   engineLogsSchema,
   engineSchema,
   errorEnvelopeSchema,
+  hostSshSchema,
   lineDraftSchema,
   linesResponseSchema,
   sessionSchema,
@@ -163,4 +164,6 @@ export const api = {
 
   settings: () => request("GET", "/api/settings", settingsSchema),
   saveSettings: (s: Settings) => request("PUT", "/api/settings", null, s),
+
+  hostSsh: () => request("GET", "/api/host/ssh", hostSshSchema),
 };

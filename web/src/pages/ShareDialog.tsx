@@ -6,6 +6,7 @@ import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
 import { shareFormatLabel } from "../i18n/translate";
 import { useIsMobile } from "../lib/useIsMobile";
+import { ClientAppsHint } from "./ClientAppsHint";
 
 export function ShareDialog({ client, onClose }: { client: Client | null; onClose: () => void }) {
   const { t } = useI18n();
@@ -59,6 +60,9 @@ export function ShareDialog({ client, onClose }: { client: Client | null; onClos
           ) : (
             share.data.links.map((l) => <CopyField key={l.lineId} label={l.lineName} value={l.uri} />)
           )}
+
+          <Divider />
+          <ClientAppsHint />
         </>
       )}
     </Modal>

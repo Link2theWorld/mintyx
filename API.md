@@ -115,3 +115,12 @@
 
 `GET /api/settings` / `PUT /api/settings`：
 `{"publicHost": "客户端连接用的域名或 IP", "subscriptionBaseUrl": "订阅地址前缀，空则按请求推断"}`
+
+## 主机检查
+
+`GET /api/host/ssh` → `{"passwordLogin": "on" | "off" | "unknown"}`
+
+面板所在服务器的 sshd 是否还接受密码登录。后端执行 `sshd -T` 读取生效配置：
+`PasswordAuthentication` 为 yes，或 `KbdInteractiveAuthentication` 为 yes 且启用了 PAM，
+即为 `on`。不是 Linux、找不到 sshd、无权执行或输出无法识别时为 `unknown`。
+结果缓存一分钟；sshd 的原始输出不会返回给前端。前端只在 `on` 时提醒改用密钥登录。

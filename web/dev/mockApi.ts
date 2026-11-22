@@ -171,6 +171,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     state.settings = { publicHost: String(b.publicHost), subscriptionBaseUrl: String(b.subscriptionBaseUrl) };
     return send(res, 204);
   }
+  if (path === "/api/host/ssh" && method === "GET") return send(res, 200, { passwordLogin: "on" });
   return fail(res, 404, "not_found", "no route");
 }
 
