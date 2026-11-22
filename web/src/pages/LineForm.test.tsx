@@ -55,6 +55,35 @@ describe("LineForm fields per protocol", () => {
   });
 });
 
+describe("LineForm server region", () => {
+  const regionSelect = () => screen.queryByRole("combobox", { name: "Server region" });
+
+  it("is offered only while drafting a REALITY line", () => {
+    localStorage.setItem(LANG_KEY, "en");
+    const props = { region: "" as const, onRegionChange: () => undefined, onSubmit: () => Promise.resolve(), onCancel: () => undefined };
+    const shown = (mode: "create" | "edit", initial: LineDraft) => {
+      const view = renderWithProviders(<LineForm mode={mode} initial={initial} {...props} />);
+      const found = regionSelect() !== null;
+      view.unmount();
+      return found;
+    };
+    // An edit has no draft to re-request, and only REALITY has a cover site to suggest.
+    expect([shown("create", drafts["vless-reality"]), shown("edit", drafts["vless-reality"]), shown("create", drafts.hysteria2)])
+      .toEqual([true, false, false]);
+  });
+
+  it("reports the picked region", async () => {
+    localStorage.setItem(LANG_KEY, "en");
+    const onRegionChange = vi.fn();
+    renderWithProviders(
+      <LineForm mode="create" initial={drafts["vless-reality"]} region="" onRegionChange={onRegionChange} onSubmit={() => Promise.resolve()} onCancel={() => undefined} />,
+    );
+    await userEvent.click(screen.getByRole("combobox", { name: "Server region" }));
+    await userEvent.click(await screen.findByText("Japan"));
+    expect(onRegionChange).toHaveBeenCalledWith("jp");
+  });
+});
+
 describe("LineForm server errors", () => {
   it("places a port conflict under the port field", async () => {
     const onSubmit = vi.fn(() => Promise.reject(new ApiError(409, "conflict", "port in use", "port")));

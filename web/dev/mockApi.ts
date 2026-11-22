@@ -59,14 +59,19 @@ async function readBody(req: IncomingMessage): Promise<Json> {
   return text ? (JSON.parse(text) as Json) : {};
 }
 
-function draft(protocol: string): Json {
+const coverSites: Record<string, string> = {
+  "": "www.stanford.edu", jp: "www.kyoto-u.ac.jp", kr: "www.snu.ac.kr", hk: "www.gov.hk", tw: "www.ncku.edu.tw",
+  sg: "www.ntu.edu.sg", us: "www.berkeley.edu", eu: "www.cam.ac.uk", other: "www.nvidia.com",
+};
+
+function draft(protocol: string, site: string): Json {
   const used = new Set(state.lines.map((l) => l.port));
   let port = 20000;
   while (used.has(port)) port++;
   const base = { name: "", protocol, port, enabled: true, host: "" };
   if (protocol === "vless-xhttp") return { ...base, xhttp: { path: "/x" + Math.random().toString(16).slice(2, 8), domain: "", security: "tls", certFile: "", keyFile: "" } };
   if (protocol === "hysteria2") return { ...base, hysteria2: { domain: "", certFile: "", keyFile: "", obfsPassword: "" } };
-  return { ...base, reality: { publicKey: "", shortId: Math.random().toString(16).slice(2, 10), serverName: "www.stanford.edu", target: "www.stanford.edu:443" } };
+  return { ...base, reality: { publicKey: "", shortId: Math.random().toString(16).slice(2, 10), serverName: site, target: site + ":443" } };
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -97,7 +102,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   if (path === "/api/lines" && method === "GET") return send(res, 200, { lines: state.lines });
-  if (path === "/api/lines/draft") return send(res, 200, draft(String((await readBody(req)).protocol)));
+  if (path === "/api/lines/draft") {
+    const b = await readBody(req);
+    const site = coverSites[typeof b.region === "string" ? b.region : ""];
+    return site === undefined ? fail(res, 400, "invalid", "unknown region", "region") : send(res, 200, draft(String(b.protocol), site));
+  }
   if (path === "/api/lines" && method === "POST") {
     const b = await readBody(req);
     if (state.lines.some((l) => l.port === b.port)) return fail(res, 409, "conflict", "port already used", "port");

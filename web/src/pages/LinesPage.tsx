@@ -4,11 +4,12 @@ import { App, Button, Card, Drawer, Empty, Flex, Popconfirm, Space, Table, Tag, 
 import { useState } from "react";
 import { api } from "../api/client";
 import { keys, useLines } from "../api/queries";
-import { lineDraftSchema, type Line, type LineDraft, type Protocol } from "../api/schemas";
+import { lineDraftSchema, regionSchema, type Line, type LineDraft, type Protocol, type Region } from "../api/schemas";
 import { PageHeader } from "../components/PageHeader";
 import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
 import { errorText, isEngineError } from "../lib/errors";
+import { readPref, writePref } from "../lib/storage";
 import { useIsMobile } from "../lib/useIsMobile";
 import { LineForm } from "./LineForm";
 
@@ -19,21 +20,46 @@ function toDraft(line: Line): LineDraft {
   return lineDraftSchema.parse(line);
 }
 
+export const REGION_KEY = "mintyx.region";
+
+function savedRegion(): Region | "" {
+  const saved = regionSchema.safeParse(readPref(REGION_KEY));
+  return saved.success ? saved.data : "";
+}
+
 function CreateLine({ protocol, onProtocolChange, onSubmit, onCancel }: {
   protocol: Protocol;
   onProtocolChange: (p: Protocol) => void;
   onSubmit: (l: LineDraft) => Promise<void>;
   onCancel: () => void;
 }) {
+  const [region, setRegion] = useState(savedRegion);
+  // Only REALITY has a cover site to pick, so the other drafts are not asked per region.
+  const asked = protocol === "vless-reality" && region !== "" ? region : undefined;
   const draft = useQuery({
-    queryKey: ["lineDraft", protocol],
-    queryFn: () => api.lineDraft(protocol),
+    queryKey: ["lineDraft", protocol, asked],
+    queryFn: () => api.lineDraft(protocol, asked),
     gcTime: 0,
     staleTime: Infinity,
+    // The form stays up with the last draft while another region's loads, so typed fields are not lost.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === protocol ? prev : undefined),
   });
+  const changeRegion = (r: Region | "") => {
+    setRegion(r);
+    writePref(REGION_KEY, r);
+  };
   if (!draft.data) return <QueryState isPending={draft.isPending} error={draft.error} refetch={draft.refetch} />;
   return (
-    <LineForm key={protocol} mode="create" initial={draft.data} onProtocolChange={onProtocolChange} onSubmit={onSubmit} onCancel={onCancel} />
+    <LineForm
+      key={protocol}
+      mode="create"
+      initial={draft.data}
+      onProtocolChange={onProtocolChange}
+      region={region}
+      onRegionChange={changeRegion}
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+    />
   );
 }
 

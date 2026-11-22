@@ -1,7 +1,7 @@
-import { App, Button, Flex, Form, Input, InputNumber, Radio, Switch, Typography } from "antd";
-import { useState } from "react";
+import { App, Button, Flex, Form, Input, InputNumber, Radio, Select, Switch, Typography } from "antd";
+import { useEffect, useState } from "react";
 import { ApiError } from "../api/client";
-import { lineDraftSchema, protocols, type LineDraft, type Protocol } from "../api/schemas";
+import { lineDraftSchema, protocols, regions, type LineDraft, type Protocol, type Region } from "../api/schemas";
 import { useI18n } from "../i18n/I18nProvider";
 import type { MessageKey } from "../i18n/zh";
 import { errorText, fieldErrorText } from "../lib/errors";
@@ -94,11 +94,14 @@ export interface LineFormProps {
   initial: LineDraft;
   /** Create mode only: the user picked another protocol, so the parent fetches a new draft. */
   onProtocolChange?: (p: Protocol) => void;
+  /** Create mode only: where the server is, "" for not sure. A change makes the parent fetch a draft for it. */
+  region?: Region | "";
+  onRegionChange?: (r: Region | "") => void;
   onSubmit: (line: LineDraft) => Promise<void>;
   onCancel: () => void;
 }
 
-export function LineForm({ mode, initial, onProtocolChange, onSubmit, onCancel }: LineFormProps) {
+export function LineForm({ mode, initial, onProtocolChange, region = "", onRegionChange, onSubmit, onCancel }: LineFormProps) {
   const { t } = useI18n();
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
@@ -106,6 +109,12 @@ export function LineForm({ mode, initial, onProtocolChange, onSubmit, onCancel }
   const protocol = initial.protocol;
   const xhttpSecurity = Form.useWatch(["xhttp", "security"], form) as string | undefined;
   const required = [{ required: true, whitespace: true, message: t("auth.required") }];
+
+  // A draft for another region arrives as a new `initial`; only its cover site may overwrite the form.
+  useEffect(() => {
+    if (mode !== "create" || initial.protocol !== "vless-reality") return;
+    form.setFieldsValue({ reality: { serverName: initial.reality.serverName, target: initial.reality.target } });
+  }, [form, mode, initial]);
 
   const finish = async (values: FormValues) => {
     setBusy(true);
@@ -171,6 +180,19 @@ export function LineForm({ mode, initial, onProtocolChange, onSubmit, onCancel }
 
       {protocol === "vless-reality" && (
         <>
+          {mode === "create" && onRegionChange && (
+            <Form.Item label={t("lines.region")} htmlFor="line-region" extra={<Help k="lines.regionHelp" />}>
+              <Select<Region | "">
+                id="line-region"
+                value={region}
+                onChange={(r) => onRegionChange(r)}
+                options={[
+                  { value: "", label: t("lines.region.auto") },
+                  ...regions.map((r) => ({ value: r, label: t(`lines.region.${r}`) })),
+                ]}
+              />
+            </Form.Item>
+          )}
           <Form.Item name={["reality", "serverName"]} label={t("lineForm.reality.serverName")} extra={<Help k="lineForm.reality.serverNameHelp" />} rules={required}>
             <Input placeholder="www.example.com" />
           </Form.Item>

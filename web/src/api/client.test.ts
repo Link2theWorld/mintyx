@@ -41,6 +41,21 @@ describe("X-Mintyx header", () => {
   });
 });
 
+describe("line draft request", () => {
+  const draft = {
+    protocol: "vless-reality", name: "REALITY 443", port: 443, enabled: true, host: "",
+    reality: { publicKey: "", shortId: "ab12", serverName: "", target: "" },
+  };
+
+  it("names the region only when one was picked", async () => {
+    const calls = stubFetch(200, draft);
+    await api.lineDraft("vless-reality");
+    await api.lineDraft("vless-reality", "jp");
+    // The server reads an absent region as "not sure"; an empty or null one must not be sent in its place.
+    expect(calls.map((c) => c.init.body)).toEqual(['{"protocol":"vless-reality"}', '{"protocol":"vless-reality","region":"jp"}']);
+  });
+});
+
 describe("error envelope", () => {
   it("becomes an ApiError carrying code, field and message", async () => {
     stubFetch(409, { error: { code: "conflict", message: "port 443 is in use", field: "port" } });

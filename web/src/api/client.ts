@@ -15,6 +15,7 @@ import {
   type ClientInput,
   type LineDraft,
   type Protocol,
+  type Region,
   type Settings,
 } from "./schemas";
 
@@ -136,7 +137,8 @@ export const api = {
   changePassword: (current: string, next: string) => request("PUT", "/api/password", null, { current, new: next }),
 
   lines: async () => (await request("GET", "/api/lines", linesResponseSchema)).lines,
-  lineDraft: (protocol: Protocol) => request("POST", "/api/lines/draft", lineDraftSchema, { protocol }),
+  lineDraft: (protocol: Protocol, region?: Region) =>
+    request("POST", "/api/lines/draft", lineDraftSchema, region ? { protocol, region } : { protocol }),
   createLine: (line: LineDraft) => request("POST", "/api/lines", null, line),
   updateLine: (id: number, line: LineDraft) => request("PUT", `/api/lines/${id}`, null, line),
   deleteLine: (id: number) => request("DELETE", `/api/lines/${id}`, null),

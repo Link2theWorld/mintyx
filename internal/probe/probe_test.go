@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -74,5 +75,50 @@ func TestFastest(t *testing.T) {
 	}
 	if got, ok := Fastest(context.Background(), []string{"broken.test"}, check); ok {
 		t.Fatalf("Fastest = %q, true with no usable site; want false", got)
+	}
+}
+
+func TestCoverSite(t *testing.T) {
+	regional, campus, global := regionSites["jp"][1], USWestCampuses[0], GlobalSites[2]
+	usable := func(hosts map[string]time.Duration) func(context.Context, string) Result {
+		return func(_ context.Context, host string) Result {
+			latency, ok := hosts[host]
+			return Result{Host: host, OK: ok, Latency: latency}
+		}
+	}
+	tests := []struct {
+		name   string
+		region string
+		hosts  map[string]time.Duration
+		want   string
+	}{
+		{"a regional site wins over a quicker global one", "jp",
+			map[string]time.Duration{regional: 80 * time.Millisecond, global: 5 * time.Millisecond}, regional},
+		{"no usable regional site falls back to the global list", "jp",
+			map[string]time.Duration{global: 5 * time.Millisecond, campus: time.Millisecond}, global},
+		{"nothing usable suggests nothing", "jp", nil, ""},
+		{"no region keeps to the campus list", "",
+			map[string]time.Duration{campus: 40 * time.Millisecond, global: 5 * time.Millisecond}, campus},
+		{"no region does not fall back to the global list", "",
+			map[string]time.Duration{global: 5 * time.Millisecond}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := coverSite(context.Background(), tt.region, usable(tt.hosts))
+			if err != nil || got != tt.want {
+				t.Fatalf("coverSite(%q) = %q, %v; want %q", tt.region, got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCoverSiteRejectsAnUnknownRegionWithoutProbing(t *testing.T) {
+	check := func(_ context.Context, host string) Result {
+		t.Errorf("probed %s for a region that does not exist", host)
+		return Result{Host: host}
+	}
+	got, err := coverSite(context.Background(), "mars", check)
+	if got != "" || !errors.Is(err, ErrUnknownRegion) {
+		t.Fatalf("coverSite(mars) = %q, %v; want ErrUnknownRegion so the API can name the bad field", got, err)
 	}
 }

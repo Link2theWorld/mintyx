@@ -61,8 +61,9 @@ type Config struct {
 	TrustProxy bool
 	// ReservedPorts cannot be used by lines, e.g. the panel's own port and the engine's API port.
 	ReservedPorts []int
-	// CoverSite suggests a REALITY cover site reachable from this server; nil or "" suggests none.
-	CoverSite func(context.Context) string
+	// CoverSite suggests a REALITY cover site reachable from this server, given the region the admin
+	// says it is in ("" when not said); nil or "" suggests none.
+	CoverSite func(ctx context.Context, region string) string
 	// HostCheck answers GET /api/host/ssh; nil inspects the real sshd.
 	HostCheck *hostcheck.Checker
 	Logger    *slog.Logger
@@ -87,7 +88,7 @@ type Server struct {
 	static     fs.FS
 	trustProxy bool
 	reserved   map[int]bool
-	coverSite  func(context.Context) string
+	coverSite  func(context.Context, string) string
 	hostCheck  *hostcheck.Checker
 	log        *slog.Logger
 	mux        *http.ServeMux

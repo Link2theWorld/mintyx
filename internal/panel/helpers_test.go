@@ -110,7 +110,12 @@ func newFixture(t *testing.T, mod func(*Config)) *fixture {
 	t.Cleanup(func() { _ = st.Close() })
 	eng := &fakeEngine{}
 	cfg := Config{Store: st, Engine: eng, Keys: &fakeKeys{}, Static: testStatic, ReservedPorts: []int{2096},
-		CoverSite: func(context.Context) string { return "www.campus.example" }}
+		CoverSite: func(_ context.Context, region string) string {
+			if region == "" {
+				return "www.campus.example"
+			}
+			return "www." + region + ".example"
+		}}
 	if mod != nil {
 		mod(&cfg)
 	}

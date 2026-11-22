@@ -162,8 +162,24 @@ func TestLineDraftSuggestsFreePort(t *testing.T) {
 		http.StatusBadRequest, codeInvalid, "protocol")
 }
 
+func TestLineDraftPicksCoverSiteForRegion(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	w := f.do("POST", "/api/lines/draft", map[string]string{"protocol": "vless-reality", "region": "jp"}, withCookie(c))
+	expectStatus(t, w, http.StatusOK)
+	r := decodeBody[map[string]any](t, w)["reality"].(map[string]any)
+	if r["serverName"] != "www.jp.example" || r["target"] != "www.jp.example:443" {
+		t.Fatalf("draft cover site = %v / %v, want the site picked for region jp", r["serverName"], r["target"])
+	}
+
+	for _, protocol := range []string{"vless-reality", "hysteria2"} {
+		w = f.do("POST", "/api/lines/draft", map[string]string{"protocol": protocol, "region": "mars"}, withCookie(c))
+		expectError(t, w, http.StatusBadRequest, codeInvalid, "region")
+	}
+}
+
 func TestLineDraftLeavesCoverSiteEmptyWhenNoneIsReachable(t *testing.T) {
-	f := newFixture(t, func(c *Config) { c.CoverSite = func(context.Context) string { return "" } })
+	f := newFixture(t, func(c *Config) { c.CoverSite = func(context.Context, string) string { return "" } })
 	c := f.setup()
 	w := f.do("POST", "/api/lines/draft", map[string]string{"protocol": "vless-reality"}, withCookie(c))
 	expectStatus(t, w, http.StatusOK)

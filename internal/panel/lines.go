@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ysuhao/mintyx-next/internal/model"
+	"github.com/ysuhao/mintyx-next/internal/probe"
 )
 
 type realityDTO struct {
@@ -268,12 +269,17 @@ var protocolLabels = map[model.Protocol]string{
 func (s *Server) draftLine(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Protocol model.Protocol `json:"protocol"`
+		Region   string         `json:"region"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
 	if !in.Protocol.Valid() {
 		s.writeFail(w, invalid("protocol", "unknown protocol"))
+		return
+	}
+	if in.Region != "" && !probe.KnownRegion(in.Region) {
+		s.writeFail(w, invalid("region", "unknown region"))
 		return
 	}
 	port, err := s.suggestPort(r.Context())
@@ -286,7 +292,7 @@ func (s *Server) draftLine(w http.ResponseWriter, r *http.Request) {
 	case model.VLESSReality:
 		l.Reality = &model.RealityParams{ShortID: s.keys.NewShortID()}
 		if s.coverSite != nil {
-			if site := s.coverSite(r.Context()); site != "" {
+			if site := s.coverSite(r.Context(), in.Region); site != "" {
 				l.Reality.ServerName, l.Reality.Target = site, site+":443"
 			}
 		}

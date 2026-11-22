@@ -47,7 +47,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/lines` | `{"lines": [Line]}` |
-| POST | `/api/lines/draft` | 请求 `{"protocol"}`，返回一个未保存、已填好默认值的 Line（含未被占用的建议端口，无 `id`）。REALITY 的 `publicKey` 留空，密钥对在保存时生成 |
+| POST | `/api/lines/draft` | 请求 `{"protocol","region"}`，返回一个未保存、已填好默认值的 Line（含未被占用的建议端口，无 `id`）。REALITY 的 `publicKey` 留空，密钥对在保存时生成。`region` 可省略，是服务器所在地区：`jp` `kr` `hk` `tw` `sg` `us` `eu` `other`，REALITY 的 `serverName`/`target` 取该地区候选站点里从服务器握手最快的一个，当地都不可用时退回全球站点；省略时按美西高校站点挑选；一个可用站点都没有时两项留空。未知地区 400 `invalid`，`field` 为 `region` |
 | POST | `/api/lines` | 请求为 Line（无 `id`）。REALITY 省略 `publicKey` 时后端生成一对密钥 |
 | PUT | `/api/lines/{id}` | 整体更新。不能改 `protocol` |
 | DELETE | `/api/lines/{id}` | 204 |

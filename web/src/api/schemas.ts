@@ -4,6 +4,11 @@ export const protocols = ["vless-reality", "vless-xhttp", "hysteria2"] as const;
 export const protocolSchema = z.enum(protocols);
 export type Protocol = z.infer<typeof protocolSchema>;
 
+/** Where the server is, for picking a REALITY cover site near it. */
+export const regions = ["jp", "kr", "hk", "tw", "sg", "us", "eu", "other"] as const;
+export const regionSchema = z.enum(regions);
+export type Region = z.infer<typeof regionSchema>;
+
 export const sessionSchema = z.object({
   needsSetup: z.boolean(),
   username: z.string().nullable(),
