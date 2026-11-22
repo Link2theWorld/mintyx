@@ -216,6 +216,7 @@ func (d *deployRun) run(ctx context.Context) error {
 		}
 		out, err := d.c.RunRoot(ctx, Script{Name: "service", Body: serviceBody, Vars: []Var{
 			{"DATA", DataDir}, {"UNIT_PATH", UnitPath}, {"UNIT", unitFile}, {"RESTART", restart},
+			{"BIN", PanelBinaryPath}, {"PROC", "/proc"},
 		}})
 		if err != nil {
 			return "", err

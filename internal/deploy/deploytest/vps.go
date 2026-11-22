@@ -4,6 +4,7 @@ package deploytest
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -67,6 +68,8 @@ type VPS struct {
 	files        map[string][]byte
 	xrayVersion  string
 	panelRunning bool
+	// runningPanel is the binary the panel process was started from; replacing the file does not change it.
+	runningPanel []byte
 	openedPorts  []string
 	ran          []Ran
 	uploads      int
@@ -164,6 +167,13 @@ func (v *VPS) OpenedPorts() []string {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return append([]string(nil), v.openedPorts...)
+}
+
+// RunningPanel is the binary the panel process is executing, nil while it is stopped.
+func (v *VPS) RunningPanel() []byte {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.runningPanel
 }
 
 func (v *VPS) Uploads() int {
@@ -337,8 +347,13 @@ func (v *VPS) script(e *sshtest.Exec, in io.Reader, asRoot bool) int {
 		}
 		changed := string(v.files[vars["UNIT_PATH"]]) != vars["UNIT"]
 		v.files[vars["UNIT_PATH"]] = []byte(vars["UNIT"])
+		stale := v.panelRunning && !bytes.Equal(v.runningPanel, v.files[vars["BIN"]])
+		restart := changed || vars["RESTART"] == "1" || stale
+		if restart || !v.panelRunning {
+			v.runningPanel = v.files[vars["BIN"]]
+		}
 		v.panelRunning = true
-		if changed || vars["RESTART"] == "1" {
+		if restart {
 			say("service=restarted")
 		} else {
 			say("service=started")

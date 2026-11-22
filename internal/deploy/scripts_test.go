@@ -381,3 +381,41 @@ func TestAuthorizedKeysAddAfterAnUnterminatedLine(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceScriptRestartsAProcessRunningAReplacedBinary(t *testing.T) {
+	requireSh(t)
+	const bin = "/usr/local/bin/mintyx"
+	for _, tc := range []struct{ name, pid, exe, want string }{
+		{"not running", "0", "", "started"},
+		{"running the installed file", "4242", bin, "started"},
+		// What Linux reports once the file a process was started from has been renamed over.
+		{"running a replaced file", "4242", bin + " (deleted)", "restarted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			stubs, proc := filepath.Join(dir, "bin"), filepath.Join(dir, "proc")
+			os.MkdirAll(stubs, 0o755)
+			os.MkdirAll(filepath.Join(proc, "4242"), 0o755)
+			if tc.exe != "" {
+				if err := os.Symlink(tc.exe, filepath.Join(proc, "4242", "exe")); err != nil {
+					t.Skip("no symlinks here")
+				}
+			}
+			writeStub(t, stubs, "systemctl", `if [ "$1" = show ]; then echo "MainPID=$STUB_PID"; else echo "$1" >> "$STUB/calls"; fi`+"\n")
+			unitPath := filepath.Join(dir, "mintyx.service")
+			os.WriteFile(unitPath, []byte(unitFile+"\n"), 0o644)
+			s := Script{Name: "service", Body: serviceBody, Vars: []Var{
+				{"DATA", filepath.Join(dir, "data")}, {"UNIT_PATH", unitPath}, {"UNIT", unitFile}, {"RESTART", "0"},
+				{"BIN", bin}, {"PROC", proc},
+			}}
+			r := runLocally(t, s, stubs, "STUB_PID="+tc.pid)
+			if r.code != 0 || r.value("service") != tc.want {
+				t.Fatalf("exit %d, service=%q, want %q\n%s", r.code, r.value("service"), tc.want, r.stderr)
+			}
+			calls, _ := os.ReadFile(filepath.Join(stubs, "calls"))
+			if want := "enable\n" + strings.TrimSuffix(tc.want, "ed") + "\n"; string(calls) != want {
+				t.Fatalf("systemctl calls = %q, want %q", calls, want)
+			}
+		})
+	}
+}

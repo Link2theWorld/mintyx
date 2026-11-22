@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -250,5 +251,39 @@ func TestDeployRejectsUnknownRegion(t *testing.T) {
 	}
 	if len(v.Ran()) != 0 {
 		t.Fatalf("scripts ran for an invalid request: %v", v.RanNames())
+	}
+}
+
+// An upgrade that uploads the new build and then stops (here: cancelled before the Xray step)
+// leaves the old process running. The retry finds the file already in place and must still
+// restart the service, or it reports success while the old version keeps serving.
+func TestDeployRetryRestartsAPanelStillRunningTheOldBuild(t *testing.T) {
+	v := deploytest.New(t)
+	c := dialVPS(t, v, testKnownHosts(t))
+	if _, err := c.Deploy(testContext(t), Request{PanelBinary: fakePayload}); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	newBuild := []byte("\x7fELF pretend panel build, next version")
+	upgrade := func(string) ([]byte, error) { return newBuild, nil }
+	ctx, cancel := context.WithCancel(testContext(t))
+	defer cancel()
+	_, err := c.Deploy(ctx, Request{PanelBinary: upgrade, Report: func(id StepID, status StepStatus, _ string) {
+		if id == StepPanel && status == StatusDone {
+			cancel()
+		}
+	}})
+	if err == nil {
+		t.Fatal("interrupted upgrade reported success")
+	}
+	if got, _ := v.File(PanelBinaryPath); !bytes.Equal(got, newBuild) {
+		t.Fatalf("installed binary = %q, want the new build uploaded before the interruption", got)
+	}
+
+	if _, err := c.Deploy(testContext(t), Request{PanelBinary: upgrade}); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if got := v.RunningPanel(); !bytes.Equal(got, newBuild) {
+		t.Fatalf("after the retry the panel still runs %q, want the new build", got)
 	}
 }

@@ -134,7 +134,13 @@ if [ ! -f "$UNIT_PATH" ] || [ "$(cat "$UNIT_PATH")" != "$UNIT" ]; then
   changed=1
 fi
 systemctl enable mintyx.service >/dev/null 2>&1 || systemctl enable mintyx.service
-if [ "$changed" = 1 ] || [ "$RESTART" = 1 ]; then
+# An earlier run that stopped after the upload left the new build on disk and the old one running.
+stale=0
+pid=$(systemctl show -p MainPID mintyx.service 2>/dev/null | cut -d= -f2)
+if [ "${pid:-0}" != 0 ] && [ "$(readlink "$PROC/$pid/exe" 2>/dev/null)" != "$BIN" ]; then
+  stale=1
+fi
+if [ "$changed" = 1 ] || [ "$RESTART" = 1 ] || [ "$stale" = 1 ]; then
   systemctl restart mintyx.service
   echo "service=restarted"
 else
