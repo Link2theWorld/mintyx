@@ -18,6 +18,8 @@ describe("ClientForm preserves existing limits", () => {
     };
     const onSubmit = vi.fn(() => Promise.resolve());
     renderWithProviders(<ClientForm client={client} onSubmit={onSubmit} onCancel={() => undefined} />);
+    expect(screen.getByRole<HTMLInputElement>("spinbutton").value.length).toBeLessThanOrEqual(7);
+    await userEvent.click(screen.getByRole("spinbutton"));
     await userEvent.clear(screen.getByLabelText("Name"));
     await userEvent.type(screen.getByLabelText("Name"), "Tablet");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));

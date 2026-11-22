@@ -8,7 +8,9 @@
 - 管理接口都在 `/api/` 下，除 `setup`、`login` 外都需要登录。
 - 登录态是一个 `HttpOnly`、`SameSite=Strict` 的 cookie；HTTPS 下带 `Secure`。
 - 所有会改动状态的请求（非 GET）必须带请求头 `X-Mintyx: 1`，且 `Origin` 存在时
-  必须与 `Host` 同源，否则 403。
+  必须与 `Host` 同源（协议、主机、端口都一致），否则 403。面板放在终结 TLS 的反向
+  代理后面时，必须加 `-trust-proxy` 启动，并让代理传 `X-Forwarded-Proto: https`；
+  否则面板认为自己是 HTTP，浏览器发来的 `https://` Origin 会被判为跨源。
 - 错误响应：`{"error": {"code": "<机器可读>", "message": "<英文说明>", "field": "<可选>"}}`。
   code 取值：`unauthorized`(401) `forbidden`(403) `not_found`(404) `conflict`(409，
   `field` 为 `port`/`name`/`secret`/`subToken`) `invalid`(400，`field` 为出错字段)

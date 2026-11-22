@@ -28,10 +28,14 @@ export function gbToBytes(gb: number | null | undefined): number {
   return Math.round(Math.min(gb, MAX_QUOTA_GB) * BYTES_PER_GB);
 }
 
-/** Bytes to GB for the edit form, rounded to 2 decimals. */
+/**
+ * Bytes to GB for the edit form: 2 decimals, or 2 significant digits for tiny
+ * quotas so a non-zero quota never shows as 0 (which would read as unlimited).
+ */
 export function bytesToGb(bytes: number): number {
   if (bytes <= 0) return 0;
-  return Math.round((bytes / BYTES_PER_GB) * 100) / 100;
+  const gb = bytes / BYTES_PER_GB;
+  return gb >= 0.01 ? Math.round(gb * 100) / 100 : Number(gb.toPrecision(2));
 }
 
 /** Fraction of quota used, or null when there is no quota. */

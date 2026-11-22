@@ -5,7 +5,7 @@ import { ApiError } from "../api/client";
 import type { Client, ClientInput } from "../api/schemas";
 import { useI18n } from "../i18n/I18nProvider";
 import { errorText, fieldErrorText } from "../lib/errors";
-import { BYTES_PER_GB, MAX_QUOTA_GB, gbToBytes } from "../lib/format";
+import { MAX_QUOTA_GB, bytesToGb, gbToBytes } from "../lib/format";
 
 interface Values {
   name: string;
@@ -36,7 +36,8 @@ export function ClientForm({ client, onSubmit, onCancel }: {
 
   const initial: Values = {
     name: client?.name ?? "",
-    quotaGb: client ? client.quotaBytes / BYTES_PER_GB : 0,
+    // Rounded for display; finish() sends the original bytes when this is left unchanged.
+    quotaGb: client ? bytesToGb(client.quotaBytes) : 0,
     expires: client?.expiresAt ? dayjs(client.expiresAt) : null,
   };
 

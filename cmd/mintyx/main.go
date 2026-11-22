@@ -37,7 +37,7 @@ func run() error {
 		listen     = flag.String("listen", "127.0.0.1:8088", "address the panel listens on")
 		xrayBin    = flag.String("xray", "xray", "path to the Xray binary")
 		apiPort    = flag.Int("xray-api-port", 10085, "loopback port for Xray's stats API")
-		trustProxy = flag.Bool("trust-proxy", false, "trust X-Forwarded-* headers from a reverse proxy in front of the panel")
+		trustProxy = flag.Bool("trust-proxy", false, "trust X-Forwarded-* headers from a reverse proxy in front of the panel; required when the proxy terminates TLS, or browser requests fail the same-origin check")
 		tick       = flag.Duration("tick", 30*time.Second, "how often traffic is collected and quotas are enforced")
 	)
 	flag.Parse()

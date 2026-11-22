@@ -38,6 +38,8 @@ describe("GB ↔ bytes", () => {
     for (const gb of [1, 2.5, 100, 0.01]) expect(bytesToGb(gbToBytes(gb))).toBe(gb);
     expect(bytesToGb(0)).toBe(0);
     expect(bytesToGb(1_500_000_000)).toBe(1.4);
+    expect(bytesToGb(1_000_000)).toBe(0.00093);
+    expect(bytesToGb(1)).toBeGreaterThan(0);
   });
 });
 
