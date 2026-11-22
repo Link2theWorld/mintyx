@@ -103,6 +103,87 @@
 | GET | `/api/engine/logs` | `{"lines": [string]}`，最近若干行 |
 | GET | `/api/status` | `{"panelStartedAt", "lineCount", "clientCount", "activeClientCount", "totalUp", "totalDown"}` |
 
+## 连通性检测与告警
+
+从中国大陆境内的 Globalping 探测点检查服务器 IP 与各线路端口是否可达，状态变化时
+用管理员自己的 SMTP 服务器发邮件。默认关闭。开启后面板只主动连接
+`api.globalping.io` 和所填的 SMTP 服务器。
+
+```jsonc
+// ReachConfig
+{
+  "enabled": false,
+  "intervalMinutes": 30,   // 10–1440。线路多时实际间隔会自动拉长，见下
+  "confirmRounds": 2,      // 1–10，连续几轮异常才算数；恢复只需一轮
+  "smtp": {
+    "host": "", "port": 587, "security": "starttls", // "starttls" | "tls" | "none"
+    "username": "",          // 空表示不登录
+    "password": "",          // 只写：响应里没有这个字段
+    "passwordSet": false,    // 只读：是否已存有密码
+    "from": "", "to": ""     // to 可用逗号分隔多个地址
+  }
+}
+```
+`smtp.host` 为空表示不发邮件，此时 `from`、`to` 可以留空。
+
+```jsonc
+// ReachStatus
+{
+  "enabled": true,
+  "configured": true,      // false：有已启用的线路没有可测的地址，需要先填「公共地址」
+  "running": false,        // 是否正有一轮检测在进行
+  "lastCheckAt": "…",      // 可为 null
+  "nextCheckAt": "…",      // 可为 null（未开启或没有可测线路）
+  "lastError": "",         // "" | "rate_limited" | "too_many_lines" | "probe_failed"
+  "lastErrorDetail": "",   // 英文原始错误，仅供排查
+  "alertError": "",        // 最近一次告警邮件的 SMTP 错误；发出后清空
+  "targets": [{
+    "lineId": 1, "lineName": "东京直连", "protocol": "vless-reality",
+    "host": "vps.example.com", "port": 443,
+    "ipOnly": false,       // true：UDP 线路，只测了 IP，没测端口
+    "verdict": "ok",       // 已确认的结论："ok" | "port_blocked" | "ip_blocked" | "down" | "unknown"
+    "since": "…",          // 该结论确认的时间，可为 null
+    "lastResult": "ok",    // 最近一轮单独的结论，取值同 verdict；从未检测过为 ""
+    "chinaReached": 5, "chinaAnswered": 5,     // 大陆探测点：连上的 / 有结果的
+    "controlReached": 3, "controlAnswered": 3  // 对照探测点（大陆以外）
+  }]
+}
+```
+`targets` 只含已启用且有地址可测的线路；测的是分享链接里的那个地址和端口。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/reach/config` | ReachConfig |
+| PUT | `/api/reach/config` | 整体更新，返回 ReachConfig。`smtp.password` 为空表示保留已存的密码；`username` 为空则清除密码；改了 `host` 或 `username` 必须重新填写密码，否则 400 `invalid`（`field` 为 `smtp.password`）。出错字段形如 `intervalMinutes`、`smtp.host` |
+| GET | `/api/reach/status` | ReachStatus |
+| POST | `/api/reach/check` | 立即检测一轮，结束后返回 ReachStatus（可能要等几十秒）。未开启、没有可测线路或已有一轮在进行时 409 `conflict`；距上一轮不足 1 分钟时 429 `rate_limited` |
+| POST | `/api/reach/test-email` | 请求为 ReachConfig 里的 `smtp` 对象，用它发一封测试邮件，不保存。密码规则同上。返回 `{"sent": bool, "error": "SMTP 报错原文，成功时为空"}`，发信失败也是 200 |
+
+结论的判定：每轮对每个地址做一次 ICMP ping，对每个 TCP 端口做一次 TCP ping，
+都由同一批探测点执行（5 个大陆探测点加日本、美国、德国各 1 个对照点）。一组探测点
+至少 2 个有结果、且严格过半一致才算数，否则该组视为没有结论。
+
+- `ok`：大陆探测点能连上该端口。
+- `port_blocked`：大陆连不上该端口，对照点能连上，且不足以认定整个 IP 不通。
+- `ip_blocked`：大陆连不上该端口，对照点能连上，并且大陆没有任何一种测法能通，
+  同时 ping 也被挡住（对照点 ping 得通、大陆 ping 不通），或者至少两个端口都是
+  这种情况。单独一个端口不通不会判成 IP 被墙，因为只封端口的情况确实存在。
+- `down`：对照点也连不上该端口。
+- `unknown`：以上都无法确定，包括接口报错和被限流。
+
+UDP 线路（Hysteria2）只按 IP 判定：大陆有任一种测法能通即 `ok`，按上面的条件
+认定 IP 不通即 `ip_blocked`；同一地址的 TCP 线路在对照点全都不通、ping 也不通时为 `down`。
+服务器不回应 ping 且没有 TCP 线路可参照时为 `unknown`。
+
+Globalping 对匿名调用按来源 IP 限制每小时 250 次测试，一次测量每个探测点算一次，
+即每次测量 8 次。一轮的测量数是「地址数 + TCP 端口数」，最多 12 次测量（96 次测试），
+超出的线路本轮为 `unknown`，`lastError` 为 `too_many_lines`。定时检测每小时最多用
+100 次测试，间隔太短时自动拉长到满足这个预算为止，其余额度留给手动检测。
+收到限流响应后，下一轮不早于接口给出的重置时间。
+
+`action` 取值：`reach.configure`（`detail` 是改动的字段名，如 `enabled, smtp.password`）、
+`reach.check`、`reach.test_email`。
+
 ## 审计日志
 
 `GET /api/audit?limit=50&before=<id>` → `{"entries": [{"id","at","action","target","detail","remoteIp"}]}`，新的在前。

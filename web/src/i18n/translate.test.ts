@@ -7,6 +7,7 @@ describe("auditActionLabel", () => {
   it("translates known action ids per language", () => {
     expect(auditActionLabel("client.rotate", makeTranslate("zh"))).toBe("更换客户密钥");
     expect(auditActionLabel("login.fail", makeTranslate("en"))).toBe("Failed sign-in");
+    expect(auditActionLabel("reach.test_email", makeTranslate("zh"))).toBe("发送测试邮件");
   });
 
   it("falls back to the raw id for actions the UI does not know", () => {

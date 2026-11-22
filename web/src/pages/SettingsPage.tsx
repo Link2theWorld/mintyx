@@ -12,6 +12,7 @@ import { useLogout } from "../layout/Shell";
 import { PreferencesBlock } from "../layout/Preferences";
 import { errorText } from "../lib/errors";
 import { MIN_PASSWORD } from "./AuthPages";
+import { ReachSettingsCard } from "./ReachSettingsCard";
 
 function GeneralCard() {
   const { t } = useI18n();
@@ -124,6 +125,7 @@ export function SettingsPage() {
       <PageHeader title={t("settings.title")} />
       <Flex vertical gap={16}>
         <GeneralCard />
+        <ReachSettingsCard />
         <PasswordCard />
         <Card title={t("settings.appearance")}>
           <div style={{ maxWidth: 420 }}><PreferencesBlock /></div>

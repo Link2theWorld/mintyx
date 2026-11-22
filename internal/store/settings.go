@@ -24,3 +24,20 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 		key, value)
 	return err
 }
+
+// SetSettings writes several keys in one transaction, for values that are only valid together.
+func (s *Store) SetSettings(ctx context.Context, kv map[string]string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for k, v := range kv {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+			k, v); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

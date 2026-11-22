@@ -14,11 +14,13 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ysuhao/mintyx-next/internal/hostcheck"
+	"github.com/ysuhao/mintyx-next/internal/reach"
 	"github.com/ysuhao/mintyx-next/internal/store"
 )
 
@@ -66,7 +68,9 @@ type Config struct {
 	CoverSite func(ctx context.Context, region string) string
 	// HostCheck answers GET /api/host/ssh; nil inspects the real sshd.
 	HostCheck *hostcheck.Checker
-	Logger    *slog.Logger
+	// Reach runs the from-China reachability measurements; nil uses the public Globalping API.
+	Reach  reach.Pinger
+	Logger *slog.Logger
 }
 
 const (
@@ -108,6 +112,10 @@ type Server struct {
 
 	dummyOnce sync.Once
 	dummyHash []byte
+
+	pinger reach.Pinger
+	// reachRunning admits one round at a time, whether the loop or the admin started it.
+	reachRunning atomic.Bool
 }
 
 func New(cfg Config) (*Server, error) {
@@ -128,6 +136,9 @@ func New(cfg Config) (*Server, error) {
 		bcryptCost: bcrypt.DefaultCost,
 		sessions:   map[[32]byte]session{},
 		limiter:    newLoginLimiter(),
+	}
+	if s.pinger = cfg.Reach; s.pinger == nil {
+		s.pinger = reach.NewClient()
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
@@ -166,6 +177,12 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/clients/{id}/reset-traffic", s.authed(s.resetClientTraffic))
 	m.HandleFunc("POST /api/clients/{id}/rotate", s.authed(s.rotateClient))
 	m.HandleFunc("GET /api/clients/{id}/share", s.authed(s.shareClient))
+
+	m.HandleFunc("GET /api/reach/config", s.authed(s.getReachConfig))
+	m.HandleFunc("PUT /api/reach/config", s.authed(s.putReachConfig))
+	m.HandleFunc("GET /api/reach/status", s.authed(s.getReachStatus))
+	m.HandleFunc("POST /api/reach/check", s.authed(s.postReachCheck))
+	m.HandleFunc("POST /api/reach/test-email", s.authed(s.postReachTestEmail))
 
 	m.HandleFunc("GET /api/engine", s.authed(s.getEngine))
 	m.HandleFunc("POST /api/engine/restart", s.authed(s.restartEngine))

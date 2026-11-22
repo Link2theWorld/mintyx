@@ -97,6 +97,9 @@ func run() error {
 	runner := srv.NewRunner(eng.Traffic, *tick)
 	runner.Start(ctx)
 	defer runner.Stop()
+	reachRunner := srv.NewReachRunner(time.Minute)
+	reachRunner.Start(ctx)
+	defer reachRunner.Stop()
 
 	httpServer := &http.Server{
 		Addr:              *listen,

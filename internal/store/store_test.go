@@ -472,6 +472,22 @@ func TestSettings(t *testing.T) {
 	}
 }
 
+func TestSetSettingsWritesAllKeys(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	if err := s.SetSetting(ctx, "a", "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSettings(ctx, map[string]string{"a": "new", "b": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{"a": "new", "b": "x"} {
+		if got, ok, err := s.GetSetting(ctx, k); err != nil || !ok || got != want {
+			t.Errorf("GetSetting(%q) = %q %v %v, want %q true nil", k, got, ok, err, want)
+		}
+	}
+}
+
 func TestReopenKeepsDataAndSchema(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "mintyx.db")

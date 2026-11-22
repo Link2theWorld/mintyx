@@ -8,6 +8,9 @@ import {
   hostSshSchema,
   lineDraftSchema,
   linesResponseSchema,
+  reachConfigSchema,
+  reachStatusSchema,
+  reachTestEmailSchema,
   sessionSchema,
   settingsSchema,
   shareSchema,
@@ -16,6 +19,8 @@ import {
   type LineDraft,
   type Protocol,
   type Region,
+  type ReachConfigInput,
+  type ReachSmtpInput,
   type Settings,
 } from "./schemas";
 
@@ -168,4 +173,10 @@ export const api = {
   saveSettings: (s: Settings) => request("PUT", "/api/settings", null, s),
 
   hostSsh: () => request("GET", "/api/host/ssh", hostSshSchema),
+  reachConfig: () => request("GET", "/api/reach/config", reachConfigSchema),
+  saveReachConfig: (c: ReachConfigInput) => request("PUT", "/api/reach/config", reachConfigSchema, c),
+  reachStatus: () => request("GET", "/api/reach/status", reachStatusSchema),
+  // Runs a whole round before answering, which can take half a minute.
+  reachCheck: () => request("POST", "/api/reach/check", reachStatusSchema),
+  reachTestEmail: (smtp: ReachSmtpInput) => request("POST", "/api/reach/test-email", reachTestEmailSchema, smtp),
 };

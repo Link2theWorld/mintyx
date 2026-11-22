@@ -135,6 +135,60 @@ export type Settings = z.infer<typeof settingsSchema>;
 
 export const hostSshSchema = z.object({ passwordLogin: z.enum(["on", "off", "unknown"]) });
 export type HostSsh = z.infer<typeof hostSshSchema>;
+export const reachSecurities = ["starttls", "tls", "none"] as const;
+export const reachSmtpSchema = z.object({
+  host: z.string(),
+  port: z.number().int(),
+  security: z.enum(reachSecurities),
+  username: z.string(),
+  passwordSet: z.boolean(),
+  from: z.string(),
+  to: z.string(),
+});
+export const reachConfigSchema = z.object({
+  enabled: z.boolean(),
+  intervalMinutes: z.number().int(),
+  confirmRounds: z.number().int(),
+  smtp: reachSmtpSchema,
+});
+export type ReachConfig = z.infer<typeof reachConfigSchema>;
+/** What the server accepts: the password is write-only, and empty means "keep the stored one". */
+export type ReachSmtpInput = Omit<ReachConfig["smtp"], "passwordSet"> & { password: string };
+export type ReachConfigInput = Omit<ReachConfig, "smtp"> & { smtp: ReachSmtpInput };
+
+export const reachVerdicts = ["ok", "port_blocked", "ip_blocked", "down", "unknown"] as const;
+export const reachVerdictSchema = z.enum(reachVerdicts);
+export type ReachVerdict = z.infer<typeof reachVerdictSchema>;
+export const reachTargetSchema = z.object({
+  lineId: z.number().int(),
+  lineName: z.string(),
+  protocol: z.string(),
+  host: z.string(),
+  port: z.number().int(),
+  ipOnly: z.boolean(),
+  verdict: reachVerdictSchema,
+  since: z.string().nullable(),
+  // "" until the line has been through a round.
+  lastResult: z.union([reachVerdictSchema, z.literal("")]),
+  chinaReached: z.number().int(),
+  chinaAnswered: z.number().int(),
+  controlReached: z.number().int(),
+  controlAnswered: z.number().int(),
+});
+export type ReachTarget = z.infer<typeof reachTargetSchema>;
+export const reachStatusSchema = z.object({
+  enabled: z.boolean(),
+  configured: z.boolean(),
+  running: z.boolean(),
+  lastCheckAt: z.string().nullable(),
+  nextCheckAt: z.string().nullable(),
+  lastError: z.string(),
+  lastErrorDetail: z.string(),
+  alertError: z.string(),
+  targets: z.array(reachTargetSchema),
+});
+export type ReachStatus = z.infer<typeof reachStatusSchema>;
+export const reachTestEmailSchema = z.object({ sent: z.boolean(), error: z.string() });
 
 export const errorEnvelopeSchema = z.object({
   error: z.object({

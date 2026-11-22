@@ -13,6 +13,7 @@ import { errorText } from "../lib/errors";
 import { GuidesCard } from "../components/Guides";
 import { formatBytes, formatDateTime } from "../lib/format";
 import { SshPasswordWarning } from "./SshPasswordWarning";
+import { ReachCard } from "./ReachCard";
 
 dayjs.extend(relativeTime);
 
@@ -143,6 +144,7 @@ export function OverviewPage() {
       <Flex vertical gap={16}>
         <StatsRow />
         <EngineCard />
+        <ReachCard />
         <LogsCard />
         <GuidesCard />
       </Flex>

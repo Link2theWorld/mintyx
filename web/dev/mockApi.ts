@@ -36,8 +36,18 @@ const state = {
     { id: 5, name: "办公室电脑", disabled: "manual", quotaBytes: 100 * GB, expiresAt: iso(200 * DAY), usedUp: 0, usedDown: 12 * GB, createdAt: iso(-10 * DAY) },
   ].map((c) => ({ ...c, usedUp: Math.round(c.usedUp), usedDown: Math.round(c.usedDown) })) as Json[],
   settings: { publicHost: "vps.example.com", subscriptionBaseUrl: "" },
+  reach: {
+    config: {
+      enabled: true, intervalMinutes: 30, confirmRounds: 2,
+      smtp: { host: "smtp.example.com", port: 587, security: "starttls", username: "me@example.com", from: "me@example.com", to: "me@example.com" },
+    } as Json,
+    password: "app-password",
+    lastCheckAt: iso(-12 * 60_000),
+    // Line id -> [confirmed verdict, latest round]; lines not listed are fine.
+    verdicts: { 2: ["port_blocked", "port_blocked"] } as Record<number, [string, string]>,
+  },
   audit: Array.from({ length: 120 }, (_, i) => {
-    const actions = ["login.ok", "client.update", "line.create", "client.rotate", "login.fail", "engine.restart", "backup.export"];
+    const actions = ["login.ok", "client.update", "line.create", "client.rotate", "login.fail", "engine.restart", "reach.check", "backup.export"];
     const action = actions[i % actions.length] ?? "login.ok";
     return { id: 120 - i, at: iso(-i * 3_600_000), action, target: action.startsWith("client") ? "妈妈的平板" : action.startsWith("line") ? "东京直连" : "", detail: "", remoteIp: "203.0.113." + String(i % 250) };
   }),
@@ -72,6 +82,31 @@ function draft(protocol: string, site: string): Json {
   if (protocol === "vless-xhttp") return { ...base, xhttp: { path: "/x" + Math.random().toString(16).slice(2, 8), domain: "", security: "tls", certFile: "", keyFile: "" } };
   if (protocol === "hysteria2") return { ...base, hysteria2: { domain: "", certFile: "", keyFile: "", obfsPassword: "" } };
   return { ...base, reality: { publicKey: "", shortId: Math.random().toString(16).slice(2, 10), serverName: site, target: site + ":443" } };
+}
+
+function reachConfig(): Json {
+  const { config, password } = state.reach;
+  return { ...config, smtp: { ...(config.smtp as Json), passwordSet: password !== "" } };
+}
+
+function reachStatus(): Json {
+  const enabled = state.reach.config.enabled === true;
+  const host = state.settings.publicHost;
+  const targets = state.lines.filter((l) => l.enabled && (l.host !== "" || host !== "")).map((l) => {
+    const [verdict, lastResult] = state.reach.verdicts[Number(l.id)] ?? ["ok", "ok"];
+    const blocked = lastResult !== "ok";
+    return {
+      lineId: l.id, lineName: l.name, protocol: l.protocol, host: l.host || host, port: l.port, ipOnly: l.protocol === "hysteria2",
+      verdict, since: iso(-3 * 3_600_000), lastResult,
+      chinaReached: blocked ? 0 : 5, chinaAnswered: 5, controlReached: 3, controlAnswered: 3,
+    };
+  });
+  return {
+    enabled, configured: host !== "" || state.lines.every((l) => !l.enabled || l.host !== ""), running: false,
+    lastCheckAt: state.reach.lastCheckAt,
+    nextCheckAt: enabled && targets.length > 0 ? new Date(Date.parse(state.reach.lastCheckAt) + Number(state.reach.config.intervalMinutes) * 60_000).toISOString() : null,
+    lastError: "", lastErrorDetail: "", alertError: "", targets,
+  };
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -156,6 +191,32 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (op === "rotate") return send(res, 204);
     Object.assign(c, await readBody(req));
     return send(res, 200, c);
+  }
+
+  if (path === "/api/reach/config" && method === "GET") return send(res, 200, reachConfig());
+  if (path === "/api/reach/config" && method === "PUT") {
+    const b = await readBody(req);
+    const { password, ...smtp } = b.smtp as Json;
+    if (typeof b.intervalMinutes !== "number" || b.intervalMinutes < 10 || b.intervalMinutes > 1440) return fail(res, 400, "invalid", "interval must be between 10 and 1440 minutes", "intervalMinutes");
+    if (smtp.username === "") state.reach.password = "";
+    else if (typeof password === "string" && password !== "") state.reach.password = password;
+    state.reach.config = { ...b, smtp };
+    return send(res, 200, reachConfig());
+  }
+  if (path === "/api/reach/status" && method === "GET") return send(res, 200, reachStatus());
+  if (path === "/api/reach/check" && method === "POST") {
+    if (state.reach.config.enabled !== true) return fail(res, 409, "conflict", "the reachability check is turned off");
+    if (Date.now() - Date.parse(state.reach.lastCheckAt) < 60_000) return fail(res, 429, "rate_limited", "checked moments ago; wait a minute before checking again");
+    await new Promise((r) => setTimeout(r, 1500));
+    state.reach.lastCheckAt = new Date().toISOString();
+    return send(res, 200, reachStatus());
+  }
+  if (path === "/api/reach/test-email" && method === "POST") {
+    const b = await readBody(req);
+    if (b.host === "") return fail(res, 400, "invalid", "SMTP host is required", "smtp.host");
+    return String(b.host).includes("fail")
+      ? send(res, 200, { sent: false, error: "notify: sign-in: 535 \"5.7.8 Authentication credentials invalid\"" })
+      : send(res, 200, { sent: true, error: "" });
   }
 
   if (path === "/api/engine" && method === "GET") {

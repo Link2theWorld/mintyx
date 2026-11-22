@@ -12,6 +12,8 @@ export const keys = {
   audit: ["audit"] as const,
   settings: ["settings"] as const,
   hostSsh: ["host", "ssh"] as const,
+  reachConfig: ["reach", "config"] as const,
+  reachStatus: ["reach", "status"] as const,
 };
 
 export const AUDIT_PAGE = 50;
@@ -28,6 +30,8 @@ export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: ap
 // sshd's configuration rarely changes; one look per visit is plenty.
 export const useHostSsh = (enabled: boolean) =>
   useQuery({ queryKey: keys.hostSsh, queryFn: () => api.hostSsh(), enabled, staleTime: 5 * 60_000, retry: false });
+export const useReachConfig = () => useQuery({ queryKey: keys.reachConfig, queryFn: api.reachConfig });
+export const useReachStatus = () => useQuery({ queryKey: keys.reachStatus, queryFn: api.reachStatus, refetchInterval: 30_000 });
 
 export const useAudit = () =>
   useInfiniteQuery({
