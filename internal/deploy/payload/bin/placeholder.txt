@@ -1,0 +1,2 @@
+Release builds put mintyx-linux-amd64 and mintyx-linux-arm64 here (scripts/build-deployer.sh).
+This file only keeps the directory in git so `go build ./...` works on a fresh checkout.

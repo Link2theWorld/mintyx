@@ -1,0 +1,4 @@
+# Panel builds are copied here by scripts/build-deployer.sh and never committed;
+# only the placeholder that keeps the embed pattern matching is tracked.
+/bin/*
+!/bin/placeholder.txt

@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Mintyx Deploy</title>
+<style nonce="__NONCE__">
+/* Colours and type follow the panel's day and night themes (web/src/theme/themes.ts). */
+:root {
+  --primary: #107c5a; --on-primary: #ffffff; --primary-soft: #e3f1ea;
+  --bg: #f8f7f3; --card: #ffffff; --fill: #f1f0ea;
+  --border: #dedcd3; --border-soft: #ebe9e2;
+  --text: #1f2a26; --text-2: #4b5550; --text-3: #5f6863;
+  --ok: #16804f; --warn: #b25e09; --warn-soft: #fbf1e2; --err: #b42318; --err-soft: #fbeceb;
+  --radius: 10px; --radius-lg: 16px;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --primary: #4fd1a5; --on-primary: #0b1f17; --primary-soft: #1d332b;
+  --bg: #151917; --card: #1b201e; --fill: #222826;
+  --border: #36403c; --border-soft: #2a322f;
+  --text: #e6ebe8; --text-2: #b7c1bc; --text-3: #9aa5a0;
+  --ok: #5ad18f; --warn: #f0b35b; --warn-soft: #2e2618; --err: #f08c6b; --err-soft: #331f19;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: var(--bg); color: var(--text); font: 15px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+}
+[hidden] { display: none !important; }
+.wrap { max-width: 720px; margin: 0 auto; padding: 28px 20px 56px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; letter-spacing: .01em; }
+.mark { width: 28px; height: 28px; border-radius: 9px; background: var(--primary); color: var(--on-primary);
+  display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.brand small { font-weight: 400; color: var(--text-3); font-size: 13px; }
+.toolbar { display: flex; gap: 6px; }
+h1 { font-size: 24px; line-height: 1.3; margin: 0 0 6px; letter-spacing: -.01em; }
+h2 { font-size: 16px; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+.lead { color: var(--text-2); margin-bottom: 22px; }
+.muted { color: var(--text-3); font-size: 13px; }
+a { color: var(--primary); text-underline-offset: 3px; }
+
+.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 20px; font-size: 13px; color: var(--text-3); }
+.steps li { display: flex; align-items: center; gap: 8px; }
+.steps li + li::before { content: ""; width: 22px; height: 1px; background: var(--border); }
+.steps .num { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); display: grid; place-items: center; font-size: 12px; }
+.steps li[aria-current="step"] { color: var(--text); font-weight: 600; }
+.steps li[aria-current="step"] .num { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.steps li.past .num { border-color: var(--primary); color: var(--primary); }
+
+.card { background: var(--card); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: 22px; margin-bottom: 16px; }
+.card > :last-child { margin-bottom: 0; }
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+.grid { display: grid; grid-template-columns: 1fr 110px; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field label, .label { font-size: 13px; color: var(--text-2); font-weight: 500; }
+input[type="text"], input[type="password"], input[type="number"], textarea {
+  width: 100%; min-height: 38px; padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card); color: var(--text); font: inherit; outline: none; transition: border-color .18s;
+}
+textarea { min-height: 108px; resize: vertical; font: 12px/1.5 var(--mono); }
+input:focus-visible, textarea:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--err); }
+.mono { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+
+button { font: inherit; cursor: pointer; }
+.btn {
+  min-height: 38px; padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--card); color: var(--text); font-weight: 500; transition: background .18s, border-color .18s, opacity .18s;
+}
+.btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.btn:focus-visible, .seg button:focus-visible, .chip input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { color: var(--on-primary); opacity: .9; }
+.btn.danger { color: var(--err); border-color: var(--err); }
+.btn.small { min-height: 30px; padding: 0 10px; font-size: 13px; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
+.btn.wide { width: 100%; min-height: 44px; font-size: 16px; margin: 8px 0 12px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+.seg { display: inline-flex; padding: 3px; gap: 3px; background: var(--fill); border-radius: var(--radius); margin-bottom: 14px; }
+.seg button { border: 0; background: transparent; color: var(--text-2); padding: 5px 14px; border-radius: 8px; font-size: 14px; }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--text); font-weight: 600; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.chip { position: relative; }
+.chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.chip span { display: block; padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 14px; color: var(--text-2); }
+.chip input:checked + span { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+
+.note { border-radius: var(--radius); padding: 11px 14px; font-size: 14px; margin-bottom: 14px; background: var(--fill); color: var(--text-2); }
+.note.err { background: var(--err-soft); color: var(--err); }
+.note.warn { background: var(--warn-soft); color: var(--warn); }
+.note.ok { background: var(--primary-soft); color: var(--primary); }
+.note { overflow-wrap: anywhere; }
+.note strong { display: block; margin-bottom: 2px; }
+.note span { display: block; }
+.note .mono { color: inherit; opacity: .9; white-space: pre-wrap; font-size: 12px; display: block; margin-top: 6px; }
+.note .btn { margin-top: 10px; }
+
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0 0 10px; font-size: 14px; }
+.kv dt { color: var(--text-3); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+
+.progress { list-style: none; margin: 16px 0 0; padding: 0; }
+.progress li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border-soft); align-items: start; }
+.progress .dot { width: 18px; height: 18px; margin-top: 3px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 11px; line-height: 1; font-weight: 700; }
+.progress li[data-status="running"] .dot { border-color: var(--primary); border-top-color: transparent; animation: spin .8s linear infinite; }
+.progress li[data-status="done"] .dot { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.progress li[data-status="failed"] .dot { background: var(--err); border-color: var(--err); color: var(--card); }
+.progress li[data-status="skipped"] .dot { color: var(--text-3); }
+.progress li[data-status=""] { color: var(--text-3); }
+.progress .detail { display: block; font-size: 12px; color: var(--text-3); overflow-wrap: anywhere; white-space: pre-wrap; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .progress li[data-status="running"] .dot { animation-duration: 2.4s; } }
+
+.share { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; }
+.qr { width: 200px; height: 200px; border-radius: var(--radius); background: #fff; border: 1px solid var(--border-soft); display: block; }
+.linkbox { background: var(--fill); border-radius: var(--radius); padding: 10px 12px; max-height: 118px; overflow: auto; margin-bottom: 10px; }
+.secret { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--fill); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; }
+.secret .mono { font-size: 15px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.tabs button { border: 0; background: transparent; color: var(--text-2); padding: 4px 10px; border-radius: 8px; font-size: 13px; }
+.tabs button[aria-selected="true"] { background: var(--fill); color: var(--text); font-weight: 600; }
+.apps { margin: 0 0 10px; padding-left: 20px; }
+footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+
+@media (max-width: 560px) {
+  .wrap { padding: 18px 14px 40px; }
+  .card { padding: 16px; }
+  .grid, .share { grid-template-columns: 1fr; }
+  .qr { margin: 0 auto; }
+  .steps .txt { display: none; }
+  .steps li[aria-current="step"] .txt { display: inline; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="mark" aria-hidden="true">M</span><span>Mintyx <small data-i18n="brandSub"></small></span></div>
+    <div class="toolbar">
+      <button class="btn small ghost" id="langToggle" type="button"></button>
+      <button class="btn small ghost" id="themeToggle" type="button"></button>
+    </div>
+  </header>
+
+  <div class="note err" id="noToken" hidden data-i18n="noToken"></div>
+  <div class="note warn" id="noPayload" hidden data-i18n="noPayload"></div>
+
+  <main id="app" hidden>
+    <ol class="steps" id="stepper">
+      <li data-step="connect"><span class="num">1</span><span class="txt" data-i18n="stepConnect"></span></li>
+      <li data-step="deploy"><span class="num">2</span><span class="txt" data-i18n="stepDeploy"></span></li>
+      <li data-step="done"><span class="num">3</span><span class="txt" data-i18n="stepDone"></span></li>
+    </ol>
+
+    <!-- 1. connect -->
+    <section id="connectView">
+      <h1 data-i18n="connectTitle"></h1>
+      <p class="lead" data-i18n="connectLead"></p>
+      <form class="card" id="connectForm" autocomplete="off" novalidate>
+        <div class="grid">
+          <div class="field"><label for="host" data-i18n="host"></label>
+            <input type="text" id="host" inputmode="url" spellcheck="false" autocapitalize="off" placeholder="203.0.113.10"></div>
+          <div class="field"><label for="port" data-i18n="port"></label>
+            <input type="number" id="port" value="22" min="1" max="65535"></div>
+        </div>
+        <div class="field"><label for="user" data-i18n="user"></label>
+          <input type="text" id="user" value="root" spellcheck="false" autocapitalize="off"></div>
+
+        <div class="label" data-i18n="authMethod"></div>
+        <div class="seg" role="group">
+          <button type="button" id="authPassword" aria-pressed="true" data-i18n="authPassword"></button>
+          <button type="button" id="authKey" aria-pressed="false" data-i18n="authKey"></button>
+        </div>
+
+        <div id="passwordFields">
+          <div class="field"><label for="password" data-i18n="password"></label>
+            <input type="password" id="password" autocomplete="off"></div>
+        </div>
+        <div id="keyFields" hidden>
+          <div class="field"><label for="privateKey" data-i18n="privateKey"></label>
+            <textarea id="privateKey" spellcheck="false" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+            <div class="row"><input type="file" id="keyFile" hidden><button type="button" class="btn small" id="keyFileBtn" data-i18n="chooseKeyFile"></button>
+              <span class="muted" data-i18n="keyStaysLocal"></span></div></div>
+          <div class="field"><label for="passphrase" data-i18n="passphrase"></label>
+            <input type="password" id="passphrase" autocomplete="off"></div>
+          <div class="field"><label for="sudoPassword" data-i18n="sudoPassword"></label>
+            <input type="password" id="sudoPassword" autocomplete="off"></div>
+        </div>
+
+        <div class="note err" id="connectError" hidden role="alert"></div>
+        <button class="btn primary wide" id="connectBtn" type="submit" data-i18n="connect"></button>
+        <p class="muted" data-i18n="credentialNote"></p>
+      </form>
+    </section>
+
+    <!-- connected server summary -->
+    <section class="card" id="serverCard" hidden>
+      <div class="card-head">
+        <div><h2 id="serverName" class="mono"></h2><div class="muted" id="serverFingerprint"></div></div>
+        <button class="btn small" id="disconnectBtn" type="button" data-i18n="disconnect"></button>
+      </div>
+    </section>
+
+    <!-- 2. deploy -->
+    <section id="deployView" hidden>
+      <div class="card">
+        <h2 data-i18n="regionTitle"></h2>
+        <p class="muted" data-i18n="regionHint"></p>
+        <div class="chips" id="regions" role="radiogroup"></div>
+        <div class="note err" id="deployError" hidden role="alert"></div>
+        <button class="btn primary wide" id="deployBtn" type="button" data-i18n="deploy"></button>
+        <p class="muted" data-i18n="deployNote"></p>
+        <ol class="progress" id="progress" hidden></ol>
+      </div>
+    </section>
+
+    <!-- 3. result -->
+    <section id="resultView" hidden>
+      <div class="note ok" id="alreadyNote" hidden><strong data-i18n="alreadyTitle"></strong><span data-i18n="alreadyBody"></span></div>
+
+      <div class="card" id="passwordCard" hidden>
+        <h2 data-i18n="panelPasswordTitle"></h2>
+        <p class="muted" data-i18n="panelPasswordHint"></p>
+        <dl class="kv"><dt data-i18n="panelUser"></dt><dd class="mono" id="adminUser"></dd></dl>
+        <div class="secret"><span class="mono" id="adminPassword"></span>
+          <button class="btn small" type="button" id="copyPassword" data-i18n="copy"></button></div>
+        <button class="btn" type="button" id="passwordSaved" data-i18n="passwordSaved"></button>
+      </div>
+
+      <div class="card" id="shareCard" hidden>
+        <h2 data-i18n="shareTitle"></h2>
+        <p class="muted" data-i18n="shareHint"></p>
+        <div class="share">
+          <img class="qr" id="qr" alt="">
+          <div>
+            <div class="linkbox mono" id="link"></div>
+            <div class="row"><button class="btn small" type="button" id="copyLink" data-i18n="copyLink"></button>
+              <span class="muted" id="lineInfo"></span></div>
+            <p class="muted" id="firewallNote"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="appsCard" hidden>
+        <h2 data-i18n="appsTitle"></h2>
+        <p class="muted" data-i18n="appsHint"></p>
+        <div class="tabs" id="osTabs" role="tablist"></div>
+        <ul class="apps" id="appList"></ul>
+        <p class="muted"><a data-guide="clients" data-i18n="appsGuide"></a></p>
+      </div>
+    </section>
+
+    <!-- tools: need only a running panel service -->
+    <section id="toolsView" hidden>
+      <div class="card">
+        <h2 data-i18n="panelTitle"></h2>
+        <p class="muted" data-i18n="panelHint"></p>
+        <div class="row"><button class="btn" type="button" id="openPanel" data-i18n="openPanel"></button>
+          <a id="panelLink" class="mono" hidden target="_blank" rel="noopener noreferrer"></a></div>
+        <div class="note err" id="panelError" hidden role="alert"></div>
+      </div>
+
+      <div class="card" id="keyCard">
+        <h2 data-i18n="keyTitle"></h2>
+        <p data-i18n="keyWhy"></p>
+        <p class="muted" data-i18n="keyHow"></p>
+        <div class="note" id="keyOutcome" hidden></div>
+        <div class="row"><button class="btn primary" type="button" id="keyBtn" data-i18n="keyBtn"></button>
+          <a data-guide="sshKey" data-i18n="keyGuide"></a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span data-i18n="footerLocal"></span>
+    <a data-guide="security" data-i18n="securityGuide"></a>
+  </footer>
+</div>
+
+<script nonce="__NONCE__">
+"use strict";
+/* The owner's guides. These are ordinary links the user may click; nothing here is fetched. */
+const GUIDES = {
+  sshKey: "https://fand.dev/go/mintyx-ssh-key",
+  clients: "https://fand.dev/go/mintyx-clients",
+  security: "https://fand.dev/go/mintyx-security",
+};
+
+/* Only apps known to import a vless REALITY share link or its QR code directly. */
+const APPS = {
+  ios: ["Shadowrocket", "Streisand", "Hiddify"],
+  android: ["v2rayNG", "Hiddify"],
+  windows: ["v2rayN", "Hiddify"],
+  macos: ["v2rayN", "Hiddify"],
+  linux: ["v2rayN", "Hiddify"],
+};
+const OS_NAMES = { ios: "iPhone / iPad", android: "Android", windows: "Windows", macos: "macOS", linux: "Linux" };
+
+const TEXT = {
+  zh: {
+    brandSub: "部署器", langName: "English", themeLight: "浅色", themeDark: "深色",
+    noToken: "这个页面需要从 mintyx-deploy 程序打印出的完整地址打开（地址末尾带一段密钥）。请回到程序窗口，复制那一行地址重新打开。",
+    noPayload: "这份程序里没有打包面板文件，无法部署。请用 scripts/build-deployer.sh 构建，或启动时加 -panel-binary 指定面板程序。",
+    stepConnect: "连接服务器", stepDeploy: "部署", stepDone: "完成",
+    connectTitle: "把 Mintyx 装到你的服务器上",
+    connectLead: "填入服务商给你的 SSH 登录信息。几分钟后，你会拿到一条可以直接用的线路。",
+    host: "服务器 IP 或域名", port: "SSH 端口", user: "用户名",
+    authMethod: "登录方式", authPassword: "密码", authKey: "私钥",
+    password: "密码", privateKey: "私钥内容", chooseKeyFile: "选择私钥文件", keyStaysLocal: "文件只在本机读取。",
+    passphrase: "私钥口令（没有就留空）", sudoPassword: "sudo 密码（用户不是 root 且 sudo 要密码时填）",
+    connect: "连接", connecting: "正在连接…",
+    credentialNote: "登录信息只保存在这个程序的内存里，用完即丢，不会写入硬盘或日志。非 root 用户的密码也会用于 sudo。",
+    disconnect: "断开", fingerprint: "主机指纹", fingerprintNew: "首次连接，已记住",
+    regionTitle: "服务器在哪个地区？", regionHint: "用来给线路挑一个合适的伪装站点。不确定就选“不确定”。",
+    region_jp: "日本", region_kr: "韩国", region_hk: "香港", region_tw: "台湾", region_sg: "新加坡",
+    region_us: "美国", region_eu: "欧洲", region_other: "其他", region_unsure: "不确定",
+    deploy: "开始部署", deploying: "正在部署…", retry: "重试",
+    deployNote: "会在服务器上安装 Mintyx 面板和 Xray，并注册为开机自启的服务。面板只监听服务器本机，不对外开放。",
+    s_inspect: "检查系统", s_panel: "上传面板程序", s_xray: "安装 Xray", s_service: "启动面板服务",
+    s_setup: "创建管理员", s_line: "创建线路", s_firewall: "放行线路端口",
+    d_unchanged: "已是最新", d_uploaded: "已上传", d_started: "已启动", d_restarted: "已重启",
+    d_none: "没有启用的防火墙，无需改动", d_ufw: "已在 ufw 放行", d_firewalld: "已在 firewalld 放行",
+    alreadyTitle: "这台服务器已经装过 Mintyx。", alreadyBody: "没有改动任何账号和线路。用你当初保存的密码打开面板即可继续管理。",
+    panelPasswordTitle: "面板管理员密码（请现在保存）",
+    panelPasswordHint: "这是面板的登录密码，部署器不会保存它。点“我已保存”后它会从这里消失，之后无法再次查看。",
+    panelUser: "用户名", copy: "复制", copied: "已复制", passwordSaved: "我已保存",
+    shareTitle: "你的线路", shareHint: "用手机上的客户端扫码，或复制链接导入。协议：VLESS + REALITY。",
+    copyLink: "复制链接", lineInfo: "端口 TCP {port}",
+    fwOpened: "已在服务器防火墙（{fw}）放行 TCP {port}。", fwNone: "服务器上没有启用防火墙。",
+    fwCloud: "如果服务商控制台里还有“安全组”或“防火墙”，请在那里也放行 TCP {port}。",
+    appsTitle: "用哪个 App？", appsHint: "下面这些客户端可以直接导入上面的链接或二维码。",
+    appsGuide: "各平台下载与导入步骤",
+    panelTitle: "打开管理面板", panelHint: "面板不对公网开放。点下面的按钮，部署器会通过 SSH 建立一条隧道，只有这台电脑能访问；关闭本程序后隧道即断开。",
+    openPanel: "打开面板", openingPanel: "正在建立隧道…",
+    keyTitle: "强烈建议：改用密钥登录",
+    keyWhy: "密码登录的服务器每天都会被自动扫描猜密码。换成密钥登录并关闭密码登录，是最有效的一步防护。",
+    keyHow: "点击后会：在这台电脑的 ~/.ssh 下生成一把新密钥 → 加到服务器 → 确认密钥能登录 → 关闭密码登录 → 再确认一次；任何一步不对都会自动恢复原状。",
+    keyBtn: "一键改用密钥登录", keyRunning: "正在设置，请勿关闭…", keyGuide: "密钥登录是什么？",
+    keyDone: "已改为密钥登录，密码登录已关闭。", keyPath: "私钥保存在：{path}", keyBackup: "请备份这个文件；丢了它就无法登录服务器。",
+    keyCommand: "以后这样登录：",
+    keyNever: "新密钥没能登录服务器，所以没有改动任何设置，密码登录照常可用。",
+    keyRolled: "关闭密码登录后密钥验证没有通过，已自动恢复原来的设置，密码登录照常可用。",
+    keyStill: "密钥已经可以登录，但服务器上另有配置文件保持着密码登录，部署器不会改动不属于它的文件。",
+    keyStillFiles: "相关文件：{files}", keyError: "设置时出错。",
+    footerLocal: "此页面由你电脑上的 mintyx-deploy 提供，不连接任何第三方。", securityGuide: "服务器安全建议",
+    e_auth: "服务器拒绝了登录：用户名、密码或私钥不对。",
+    e_unreachable: "连不上这台服务器。请检查 IP、SSH 端口，以及服务器是否已经开机。",
+    e_host_key_changed: "这台服务器的身份指纹和上次不一样。",
+    e_hkc_body: "如果你刚刚重装过系统，这是正常的，可以忘记旧指纹后重连。否则请不要继续：可能有人在中间拦截连接。",
+    e_hkc_known: "上次记住的：", e_hkc_presented: "这次看到的：", forgetHost: "忘记旧指纹并重新连接",
+    e_needs_root: "登录成功，但这个用户没有 root 权限。请用 root 登录，或填写正确的 sudo 密码。",
+    e_passphrase_required: "这把私钥有口令保护，请填写口令。", e_passphrase_wrong: "私钥口令不对。",
+    e_bad_key: "无法识别这段私钥。请粘贴完整内容，包括开头和结尾两行。",
+    e_invalid: "请检查填写的内容。", e_busy: "上一个操作还在进行，请稍候。", e_password_unsaved: "请先保存页面上显示的面板密码。",
+    e_not_connected: "连接已断开，请重新连接。",
+    e_unsupported: "这台服务器不受支持。需要使用 systemd 的 64 位 Linux（x86_64 或 arm64）。",
+    e_no_payload: "这份程序没有打包适合这台服务器的面板文件。",
+    e_no_cover_site: "面板已装好，但没能找到可用的伪装站点，线路没有创建。请保存下面的密码，打开面板手动添加线路。",
+    e_panel_not_answering: "面板服务启动后没有响应。", e_upload_corrupt: "上传的文件校验不一致，请重试。",
+    e_panel: "面板返回了错误。", e_timeout: "操作超时。", e_error: "出错了。", e_network: "无法联系本机的 mintyx-deploy 程序，它可能已经退出。",
+  },
+  en: {
+    brandSub: "Deploy", langName: "中文", themeLight: "Light", themeDark: "Dark",
+    noToken: "Open this page with the full address that mintyx-deploy printed (it ends with a secret). Go back to the program window and copy that line again.",
+    noPayload: "This build does not include the panel program, so it cannot deploy. Build it with scripts/build-deployer.sh, or start it with -panel-binary.",
+    stepConnect: "Connect", stepDeploy: "Deploy", stepDone: "Done",
+    connectTitle: "Put Mintyx on your server",
+    connectLead: "Enter the SSH login your provider gave you. A few minutes from now you will have a working line.",
+    host: "Server IP or domain", port: "SSH port", user: "User name",
+    authMethod: "Log in with", authPassword: "Password", authKey: "Private key",
+    password: "Password", privateKey: "Private key", chooseKeyFile: "Choose key file", keyStaysLocal: "The file is only read on this computer.",
+    passphrase: "Key passphrase (leave empty if none)", sudoPassword: "sudo password (only if the user is not root and sudo asks for one)",
+    connect: "Connect", connecting: "Connecting…",
+    credentialNote: "Login details stay in this program's memory for this session only; they are never written to disk or logs. For a non-root user the password is also used for sudo.",
+    disconnect: "Disconnect", fingerprint: "Host fingerprint", fingerprintNew: "first connection, remembered",
+    regionTitle: "Where is the server?", regionHint: "Used to pick a suitable cover site for the line. Choose “Not sure” if you do not know.",
+    region_jp: "Japan", region_kr: "Korea", region_hk: "Hong Kong", region_tw: "Taiwan", region_sg: "Singapore",
+    region_us: "United States", region_eu: "Europe", region_other: "Other", region_unsure: "Not sure",
+    deploy: "Deploy", deploying: "Deploying…", retry: "Try again",
+    deployNote: "This installs the Mintyx panel and Xray on the server as a service that starts at boot. The panel listens on the server's own loopback only.",
+    s_inspect: "Check the system", s_panel: "Upload the panel", s_xray: "Install Xray", s_service: "Start the panel service",
+    s_setup: "Create the admin", s_line: "Create the line", s_firewall: "Open the line's port",
+    d_unchanged: "already up to date", d_uploaded: "uploaded", d_started: "started", d_restarted: "restarted",
+    d_none: "no active firewall, nothing to change", d_ufw: "allowed in ufw", d_firewalld: "allowed in firewalld",
+    alreadyTitle: "Mintyx is already installed on this server.", alreadyBody: "No account or line was touched. Open the panel with the password you saved back then.",
+    panelPasswordTitle: "Panel admin password (save it now)",
+    panelPasswordHint: "This is the panel's login. The deployer does not keep it: once you click “I saved it” it disappears from here for good.",
+    panelUser: "User name", copy: "Copy", copied: "Copied", passwordSaved: "I saved it",
+    shareTitle: "Your line", shareHint: "Scan with the client app on your phone, or copy the link and import it. Protocol: VLESS + REALITY.",
+    copyLink: "Copy link", lineInfo: "TCP port {port}",
+    fwOpened: "TCP {port} was allowed in the server's firewall ({fw}).", fwNone: "No firewall is active on the server.",
+    fwCloud: "If your provider's console has a “security group” or “firewall”, allow TCP {port} there too.",
+    appsTitle: "Which app?", appsHint: "These clients can import the link or QR code above directly.",
+    appsGuide: "Download and import steps for each platform",
+    panelTitle: "Open the admin panel", panelHint: "The panel is not exposed to the internet. The button opens an SSH tunnel that only this computer can use; it closes when this program exits.",
+    openPanel: "Open panel", openingPanel: "Opening the tunnel…",
+    keyTitle: "Strongly recommended: switch to key login",
+    keyWhy: "Servers with password login are scanned and guessed at all day. Logging in with a key and turning passwords off is the single most effective protection.",
+    keyHow: "One click will: create a new key under ~/.ssh on this computer → add it to the server → prove the key logs in → turn password login off → prove it again. If any step fails, everything is put back.",
+    keyBtn: "Switch to key login", keyRunning: "Working, do not close this…", keyGuide: "What is key login?",
+    keyDone: "Key login is on and password login is off.", keyPath: "Private key saved at: {path}", keyBackup: "Back this file up; without it you cannot log in to the server.",
+    keyCommand: "From now on, log in with:",
+    keyNever: "The new key could not log in, so nothing was changed. Password login works as before.",
+    keyRolled: "The key check failed after passwords were turned off, so the change was undone. Password login works as before.",
+    keyStill: "The key works, but another configuration file on the server keeps password login on, and the deployer does not edit files it did not write.",
+    keyStillFiles: "Files involved: {files}", keyError: "Something went wrong.",
+    footerLocal: "This page is served by mintyx-deploy on your own computer and contacts no third party.", securityGuide: "Server security guide",
+    e_auth: "The server refused the login: wrong user name, password or key.",
+    e_unreachable: "Cannot reach the server. Check the IP, the SSH port, and that the server is running.",
+    e_host_key_changed: "This server's identity is not the one remembered from last time.",
+    e_hkc_body: "If you have just reinstalled the system this is expected: forget the old fingerprint and reconnect. Otherwise stop here, someone may be intercepting the connection.",
+    e_hkc_known: "Remembered: ", e_hkc_presented: "Seen now: ", forgetHost: "Forget the old fingerprint and reconnect",
+    e_needs_root: "Logged in, but this user has no root rights. Log in as root or give the correct sudo password.",
+    e_passphrase_required: "This key is protected by a passphrase. Enter it.", e_passphrase_wrong: "Wrong passphrase for this key.",
+    e_bad_key: "This does not look like a private key. Paste all of it, including the first and last lines.",
+    e_invalid: "Check what you entered.", e_busy: "The previous operation is still running.", e_password_unsaved: "Save the panel password shown on this page first.",
+    e_not_connected: "The connection was lost. Connect again.",
+    e_unsupported: "This server is not supported. It must be 64-bit Linux (x86_64 or arm64) with systemd.",
+    e_no_payload: "This build has no panel program for this server.",
+    e_no_cover_site: "The panel is installed, but no usable cover site was found, so no line was created. Save the password below, open the panel and add a line by hand.",
+    e_panel_not_answering: "The panel service was started but does not answer.", e_upload_corrupt: "The uploaded file failed its checksum. Try again.",
+    e_panel: "The panel returned an error.", e_timeout: "The operation timed out.", e_error: "Something went wrong.", e_network: "Cannot reach mintyx-deploy on this computer; it may have exited.",
+  },
+};
+
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode: fall back to defaults */ } },
+};
+
+let lang = store.get("mintyx.lang") || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
+let theme = store.get("mintyx.theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+let token = "";
+let state = null;
+let authMode = "password";
+let region = "unsure";
+let osTab = detectOS();
+let pollTimer = 0;
+let lastConnectError = null;
+let lastInput = null;
+
+function t(key, vars) {
+  let s = TEXT[lang][key];
+  if (s === undefined) s = TEXT.en[key];
+  if (s === undefined) return key;
+  return s.replace(/\{(\w+)\}/g, (m, name) => (vars && name in vars ? vars[name] : m));
+}
+
+function detectOS() {
+  const ua = navigator.userAgent || "";
+  if (/Android/i.test(ua)) return "android";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+  if (/Windows/i.test(ua)) return "windows";
+  if (/Mac OS X|Macintosh/i.test(ua)) return "macos";
+  return "linux";
+}
+
+function el(tag, props, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c) node.append(c);
+  return node;
+}
+
+function applyStatic() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  document.documentElement.dataset.theme = theme;
+  document.title = "Mintyx " + t("brandSub");
+  for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
+  for (const a of document.querySelectorAll("a[data-guide]")) {
+    a.href = GUIDES[a.dataset.guide];
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+  }
+  $("langToggle").textContent = t("langName");
+  $("themeToggle").textContent = theme === "dark" ? t("themeLight") : t("themeDark");
+}
+
+async function api(method, path, body) {
+  try {
+    const resp = await fetch(path, {
+      method,
+      headers: Object.assign({ "X-Mintyx-Deploy": token }, body ? { "Content-Type": "application/json" } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+      cache: "no-store",
+      credentials: "omit",
+    });
+    let data = null;
+    if (resp.status !== 204 && resp.status !== 202) {
+      try { data = await resp.json(); } catch (e) { data = null; }
+    }
+    if (!resp.ok) return { ok: false, error: (data && data.error) || { code: "error", message: "HTTP " + resp.status } };
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, error: { code: "network", message: String(e) } };
+  }
+}
+
+function errorText(err) {
+  const known = TEXT[lang]["e_" + err.code] !== undefined;
+  return known ? t("e_" + err.code) : t("e_error");
+}
+
+function showError(box, err, withDetail) {
+  box.replaceChildren();
+  if (!err) { box.hidden = true; return; }
+  box.append(el("strong", { text: errorText(err) }));
+  if (withDetail && err.message) box.append(el("span", { class: "mono", text: err.message }));
+  box.hidden = false;
+}
+
+function renderConnectError() {
+  const box = $("connectError");
+  const err = lastConnectError;
+  for (const id of ["host", "port", "password", "privateKey", "passphrase"]) $(id).removeAttribute("aria-invalid");
+  if (!err) { box.hidden = true; return; }
+  if (err.field && $(err.field)) $(err.field).setAttribute("aria-invalid", "true");
+  const detail = ["unreachable", "needs_root", "error", "invalid"].includes(err.code);
+  showError(box, err, detail);
+  if (err.code === "host_key_changed") {
+    box.append(
+      el("span", { text: t("e_hkc_body") }),
+      el("span", { class: "mono", text: t("e_hkc_known") + (err.known || "") + "\n" + t("e_hkc_presented") + (err.presented || "") }),
+      el("button", { class: "btn small danger", type: "button", text: t("forgetHost"), onclick: forgetAndReconnect }),
+    );
+  }
+}
+
+function connectInput() {
+  const keyMode = authMode === "key";
+  return {
+    host: $("host").value.trim(),
+    port: parseInt($("port").value, 10) || 22,
+    user: $("user").value.trim() || "root",
+    password: keyMode ? $("sudoPassword").value : $("password").value,
+    privateKey: keyMode ? $("privateKey").value : "",
+    passphrase: keyMode ? $("passphrase").value : "",
+  };
+}
+
+async function connect(input) {
+  lastInput = input;
+  lastConnectError = null;
+  renderConnectError();
+  const btn = $("connectBtn");
+  btn.disabled = true;
+  btn.textContent = t("connecting");
+  const res = await api("POST", "/api/connect", input);
+  btn.disabled = false;
+  btn.textContent = t("connect");
+  if (!res.ok) {
+    lastConnectError = res.error;
+    renderConnectError();
+    return;
+  }
+  /* The secrets are in the program's memory now; the page has no further use for them. */
+  for (const id of ["password", "privateKey", "passphrase", "sudoPassword"]) $(id).value = "";
+  lastInput = null;
+  await refresh();
+}
+
+async function forgetAndReconnect() {
+  if (!lastInput) return;
+  const res = await api("POST", "/api/forget-host", { host: lastInput.host, port: lastInput.port });
+  if (!res.ok) { lastConnectError = res.error; renderConnectError(); return; }
+  await connect(lastInput);
+}
+
+function renderRegions() {
+  const box = $("regions");
+  box.replaceChildren();
+  const codes = ((state && state.regions) || []).concat(["unsure"]);
+  for (const code of codes) {
+    const input = el("input", { type: "radio", name: "region", value: code, onchange: () => { region = code; } });
+    input.checked = code === region;
+    box.append(el("label", { class: "chip" }, input, el("span", { text: t("region_" + code) })));
+  }
+}
+
+function stepDetail(step) {
+  const d = step.detail || "";
+  if (step.status === "failed") return d;
+  const key = "d_" + d;
+  if (TEXT[lang][key] !== undefined) return t(key);
+  if (step.id === "xray") return d.replace(" installed", "").replace(" present", "");
+  if (step.id === "line") return d.replace("port ", "TCP ");
+  return d;
+}
+
+function renderProgress(job) {
+  const list = $("progress");
+  list.hidden = !job;
+  list.replaceChildren();
+  if (!job) return;
+  const marks = { done: "✓", failed: "×", skipped: "–" };
+  for (const step of job.steps) {
+    const detail = stepDetail(step);
+    list.append(el("li", { "data-status": step.status || "" },
+      el("span", { class: "dot", "aria-hidden": "true", text: marks[step.status] || "" }),
+      el("span", {}, el("span", { text: t("s_" + step.id) }), detail ? el("span", { class: "detail", text: detail }) : null)));
+  }
+}
+
+function renderResult(job) {
+  const res = job && !job.running ? job.result : null;
+  $("alreadyNote").hidden = !(res && res.alreadyDeployed);
+
+  const hasPassword = !!(res && res.adminPassword);
+  $("passwordCard").hidden = !hasPassword;
+  // Disconnecting would throw the only copy of the password away; the server refuses it too.
+  $("disconnectBtn").hidden = hasPassword;
+  if (hasPassword) {
+    $("adminUser").textContent = res.adminUser;
+    $("adminPassword").textContent = res.adminPassword;
+  } else {
+    $("adminPassword").textContent = "";
+  }
+
+  const hasLink = !!(res && res.link);
+  $("shareCard").hidden = !hasLink;
+  $("appsCard").hidden = !hasLink;
+  if (hasLink) {
+    $("qr").src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(res.qrSvg);
+    $("qr").alt = t("shareTitle");
+    $("link").textContent = res.link;
+    $("lineInfo").textContent = t("lineInfo", { port: res.port });
+    const fw = res.firewall && res.firewall !== "none" ? t("fwOpened", { fw: res.firewall, port: res.port }) : t("fwNone");
+    $("firewallNote").textContent = fw + " " + t("fwCloud", { port: res.port });
+    renderApps();
+  }
+}
+
+function renderApps() {
+  const tabs = $("osTabs");
+  tabs.replaceChildren();
+  for (const os of Object.keys(APPS)) {
+    tabs.append(el("button", { type: "button", role: "tab", "aria-selected": String(os === osTab), text: OS_NAMES[os],
+      onclick: () => { osTab = os; renderApps(); } }));
+  }
+  const list = $("appList");
+  list.replaceChildren();
+  for (const name of APPS[osTab]) list.append(el("li", { text: name }));
+}
+
+function renderKeyLogin() {
+  const box = $("keyOutcome");
+  const k = state && state.keyLogin;
+  const conn = state && state.connection;
+  box.replaceChildren();
+  box.hidden = !k;
+  $("keyBtn").hidden = !!(k && k.outcome === "done");
+  if (!k) return;
+  const texts = { "done": "keyDone", "never-worked": "keyNever", "rolled-back": "keyRolled", "still-on": "keyStill", "error": "keyError" };
+  box.className = "note " + (k.outcome === "done" ? "ok" : k.outcome === "still-on" ? "warn" : "err");
+  box.append(el("strong", { text: t(texts[k.outcome] || "keyError") }));
+  if (k.outcome === "still-on" && k.files && k.files.length) box.append(el("span", { text: t("keyStillFiles", { files: k.files.join(", ") }) }));
+  if (k.outcome !== "done" && k.outcome !== "still-on" && k.message) box.append(el("span", { class: "mono", text: k.message }));
+  if (k.keyPath && (k.outcome === "done" || k.outcome === "still-on")) {
+    box.append(el("span", { text: t("keyPath", { path: k.keyPath }) + " " + t("keyBackup") }));
+    if (conn) {
+      const target = conn.host.includes(":") ? "[" + conn.host + "]" : conn.host;
+      box.append(el("span", { text: t("keyCommand") }),
+        el("span", { class: "mono", text: "ssh -i \"" + k.keyPath + "\" -p " + conn.port + " " + conn.user + "@" + target }));
+    }
+  }
+}
+
+function render() {
+  applyStatic();
+  $("noPayload").hidden = !(state && state.payload && state.payload.length === 0);
+  const conn = state && state.connection;
+  const job = state && state.deploy;
+  const finished = !!(job && !job.running);
+  const succeeded = finished && !job.error;
+  const serviceUp = !!(job && job.steps.some((s) => s.id === "service" && s.status === "done"));
+
+  $("connectView").hidden = !!conn;
+  $("serverCard").hidden = !conn;
+  $("deployView").hidden = !conn || succeeded;
+  $("resultView").hidden = !conn || !finished;
+  $("toolsView").hidden = !conn || !finished || !serviceUp;
+
+  const current = !conn ? "connect" : succeeded ? "done" : "deploy";
+  const order = ["connect", "deploy", "done"];
+  for (const li of $("stepper").children) {
+    const i = order.indexOf(li.dataset.step);
+    if (li.dataset.step === current) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+    li.classList.toggle("past", i < order.indexOf(current));
+  }
+
+  renderConnectError();
+  if (conn) {
+    const target = conn.host.includes(":") ? "[" + conn.host + "]" : conn.host;
+    $("serverName").textContent = conn.user + "@" + target + (conn.port === 22 ? "" : ":" + conn.port);
+    $("serverFingerprint").textContent = t("fingerprint") + " " + conn.fingerprint + (conn.firstSeen ? " (" + t("fingerprintNew") + ")" : "");
+  }
+  renderRegions();
+  renderProgress(job);
+  const deployBtn = $("deployBtn");
+  deployBtn.disabled = !!(job && job.running);
+  deployBtn.textContent = job && job.running ? t("deploying") : job && job.error ? t("retry") : t("deploy");
+  showError($("deployError"), finished ? job.error : null, true);
+  renderResult(job);
+  renderKeyLogin();
+}
+
+async function refresh() {
+  const res = await api("GET", "/api/state");
+  if (!res.ok) {
+    if (res.error.code === "unauthorized" || res.error.code === "forbidden") { $("app").hidden = true; $("noToken").hidden = false; }
+    return;
+  }
+  state = res.data;
+  render();
+  clearTimeout(pollTimer);
+  if (state.deploy && state.deploy.running) pollTimer = setTimeout(refresh, 800);
+}
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const area = el("textarea", {});
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  const label = button.dataset.i18n;
+  button.textContent = t("copied");
+  setTimeout(() => { button.textContent = t(label); }, 1500);
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  $("authPassword").setAttribute("aria-pressed", String(mode === "password"));
+  $("authKey").setAttribute("aria-pressed", String(mode === "key"));
+  $("passwordFields").hidden = mode !== "password";
+  $("keyFields").hidden = mode !== "key";
+}
+
+function wire() {
+  $("langToggle").addEventListener("click", () => { lang = lang === "zh" ? "en" : "zh"; store.set("mintyx.lang", lang); render(); });
+  $("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; store.set("mintyx.theme", theme); render(); });
+  $("authPassword").addEventListener("click", () => setAuthMode("password"));
+  $("authKey").addEventListener("click", () => setAuthMode("key"));
+  $("keyFileBtn").addEventListener("click", () => $("keyFile").click());
+  $("keyFile").addEventListener("change", async (ev) => {
+    const file = ev.target.files[0];
+    if (file && file.size < 65536) $("privateKey").value = await file.text();
+    ev.target.value = "";
+  });
+  $("connectForm").addEventListener("submit", (ev) => { ev.preventDefault(); connect(connectInput()); });
+  $("disconnectBtn").addEventListener("click", async () => { await api("POST", "/api/disconnect"); await refresh(); });
+  $("deployBtn").addEventListener("click", async () => {
+    $("deployBtn").disabled = true;
+    const res = await api("POST", "/api/deploy", { region, clientName: lang === "zh" ? "我的设备" : "My device" });
+    if (!res.ok) { showError($("deployError"), res.error, true); $("deployBtn").disabled = false; if (res.error.code === "not_connected") await refresh(); return; }
+    await refresh();
+  });
+  $("copyPassword").addEventListener("click", (ev) => copyText($("adminPassword").textContent, ev.currentTarget));
+  $("copyLink").addEventListener("click", (ev) => copyText($("link").textContent, ev.currentTarget));
+  $("passwordSaved").addEventListener("click", async () => { await api("POST", "/api/password-saved"); await refresh(); });
+  $("openPanel").addEventListener("click", async () => {
+    const btn = $("openPanel");
+    btn.disabled = true;
+    btn.textContent = t("openingPanel");
+    /* Opened before the request so the browser still counts it as the user's own click. */
+    const tab = window.open("", "_blank");
+    const res = await api("POST", "/api/tunnel");
+    btn.disabled = false;
+    btn.textContent = t("openPanel");
+    showError($("panelError"), res.ok ? null : res.error, true);
+    if (!res.ok) { if (tab) tab.close(); return; }
+    const link = $("panelLink");
+    link.href = res.data.url;
+    link.textContent = res.data.url;
+    link.hidden = false;
+    if (tab) { tab.opener = null; tab.location.replace(res.data.url); }
+  });
+  $("keyBtn").addEventListener("click", async () => {
+    const btn = $("keyBtn");
+    btn.disabled = true;
+    btn.textContent = t("keyRunning");
+    const res = await api("POST", "/api/key-login");
+    btn.disabled = false;
+    btn.textContent = t("keyBtn");
+    if (!res.ok) { state.keyLogin = { outcome: "error", message: res.error.message, files: [], keyPath: "" }; renderKeyLogin(); return; }
+    await refresh();
+  });
+}
+
+function readToken() {
+  const m = /[#&]t=([A-Za-z0-9_-]+)/.exec(location.hash);
+  if (m) {
+    try { sessionStorage.setItem("mintyx.token", m[1]); } catch (e) { /* the token then lives for this page load only */ }
+    history.replaceState(null, "", location.pathname);
+    return m[1];
+  }
+  try { return sessionStorage.getItem("mintyx.token") || ""; } catch (e) { return ""; }
+}
+
+applyStatic();
+token = readToken();
+if (!token) {
+  $("noToken").hidden = false;
+} else {
+  $("app").hidden = false;
+  wire();
+  refresh();
+}
+</script>
+</body>
+</html>
