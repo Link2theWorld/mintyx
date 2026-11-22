@@ -6,139 +6,203 @@
 <meta name="referrer" content="no-referrer">
 <title>Mintyx Deploy</title>
 <style nonce="__NONCE__">
-/* Colours and type follow the panel's day and night themes (web/src/theme/themes.ts). */
+/*
+ * The panel's Flover Diary look (web/src/app.css): a sky-blue dotted page, paper cards, ink
+ * text, a little blossom pink, handwritten headings. The palettes are copies of
+ * web/src/theme/themes.ts; keep them in step. Forms, numbers and secrets stay straight; only
+ * the QR polaroid and the password note are tilted.
+ */
+@font-face { font-family: "Long Cang"; src: url(/fonts/LongCang-subset.woff2) format("woff2"); font-display: swap; }
+@font-face { font-family: "Caveat"; src: url(/fonts/Caveat-600-subset.woff2) format("woff2"); font-weight: 600; font-display: swap; }
 :root {
-  --primary: #107c5a; --on-primary: #ffffff; --primary-soft: #e3f1ea;
-  --bg: #f8f7f3; --card: #ffffff; --fill: #f1f0ea;
-  --border: #dedcd3; --border-soft: #ebe9e2;
-  --text: #1f2a26; --text-2: #4b5550; --text-3: #5f6863;
-  --ok: #16804f; --warn: #b25e09; --warn-soft: #fbf1e2; --err: #b42318; --err-soft: #fbeceb;
-  --radius: 10px; --radius-lg: 16px;
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sky: #e6eff8; --paper: #ffffff; --ink: #1b2738; --ink-muted: #40516a; --on-ink: #ffffff;
+  --blossom: #b83a73; --on-blossom: #ffffff; --blossom-deep: #7a2149; --blossom-soft: #f6d3e2; --note: #fbe3ee;
+  --sky-deep: #2f6fb5; --sky-photo: #cfdff0; --line: #7f95b0; --hairline: #e3ebf5;
+  --dot: rgba(127, 149, 176, 0.28); --shadow-paper: 0 6px 14px rgba(27, 39, 56, 0.16);
+  --ok: #1f7a55; --warning: #8f5400; --error: #b42318;
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+  --mono: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-hand: "Long Cang", "KaiTi", "STKaiti", cursive;
+  --font-script: "Caveat", "Segoe Print", cursive;
+  --r-paper: 6px; --r-field: 8px; --r-ticket: 12px; --r-pill: 30px;
   color-scheme: light;
 }
-:root[data-theme="dark"] {
-  --primary: #4fd1a5; --on-primary: #0b1f17; --primary-soft: #1d332b;
-  --bg: #151917; --card: #1b201e; --fill: #222826;
-  --border: #36403c; --border-soft: #2a322f;
-  --text: #e6ebe8; --text-2: #b7c1bc; --text-3: #9aa5a0;
-  --ok: #5ad18f; --warn: #f0b35b; --warn-soft: #2e2618; --err: #f08c6b; --err-soft: #331f19;
+:root[data-theme="night"] {
+  --sky: #121a29; --paper: #1c2638; --ink: #e8eef7; --ink-muted: #aab7ca; --on-ink: #121a29;
+  --blossom: #f08bb7; --on-blossom: #2a0d1b; --blossom-deep: #ffd3e6; --blossom-soft: #4a2438; --note: #3b2232;
+  --sky-deep: #8fbcf0; --sky-photo: #22324a; --line: #647a99; --hairline: #26334a;
+  --dot: rgba(143, 188, 240, 0.14); --shadow-paper: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --ok: #64d6a0; --warning: #f2b866; --error: #f49a8a;
   color-scheme: dark;
 }
+:root[data-theme="midnight"] {
+  --sky: #000000; --paper: #0e131c; --ink: #e6ecf5; --ink-muted: #9eabbf; --on-ink: #000000;
+  --blossom: #f07fae; --on-blossom: #22091a; --blossom-deep: #ffcbe0; --blossom-soft: #3d1c2e; --note: #2e1a26;
+  --sky-deep: #82b3ec; --sky-photo: #141e2d; --line: #55688a; --hairline: #1a2230;
+  --dot: rgba(130, 179, 236, 0.12); --shadow-paper: 0 6px 16px rgba(0, 0, 0, 0.7);
+  --ok: #5ad18f; --warning: #f0b35b; --error: #f08c6b;
+  color-scheme: dark;
+}
+/* Long Cang's Latin letters are an afterthought; English headings use Caveat. */
+html[lang="en"] { --font-hand: "Caveat", "Segoe Print", cursive; }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body {
-  background: var(--bg); color: var(--text); font: 15px/1.6 var(--font);
+  color: var(--ink); font: 15px/1.6 var(--font);
+  background-color: var(--sky);
+  background-image: radial-gradient(var(--dot) 1.2px, transparent 1.3px);
+  background-size: 22px 22px; background-attachment: fixed;
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
 }
 [hidden] { display: none !important; }
-.wrap { max-width: 720px; margin: 0 auto; padding: 28px 20px 56px; }
-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; letter-spacing: .01em; }
-.mark { width: 28px; height: 28px; border-radius: 9px; background: var(--primary); color: var(--on-primary);
-  display: grid; place-items: center; font-weight: 700; font-size: 15px; }
-.brand small { font-weight: 400; color: var(--text-3); font-size: 13px; }
-.toolbar { display: flex; gap: 6px; }
-h1 { font-size: 24px; line-height: 1.3; margin: 0 0 6px; letter-spacing: -.01em; }
-h2 { font-size: 16px; margin: 0 0 4px; }
+.wrap { max-width: 720px; margin: 0 auto; padding: 28px 22px 56px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.logo { width: 30px; height: 30px; flex: none; }
+.logo-bg { fill: var(--ink); }
+.logo-m { fill: none; stroke: var(--paper); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.logo-dot { fill: var(--blossom); }
+.brand-name { font: 600 32px/32px var(--font-script); color: var(--ink); }
+.brand-sub { font: 400 22px/26px var(--font-hand); color: var(--blossom); margin-left: 2px; }
+h1 { font: 400 42px/46px var(--font-hand); margin: 0 0 6px; color: var(--ink); }
+h2 { font: 400 26px/30px var(--font-hand); margin: 0 0 6px; color: var(--sky-deep); }
 p { margin: 0 0 12px; }
-.lead { color: var(--text-2); margin-bottom: 22px; }
-.muted { color: var(--text-3); font-size: 13px; }
-a { color: var(--primary); text-underline-offset: 3px; }
+.lead { color: var(--ink-muted); margin-bottom: 24px; }
+.muted { color: var(--ink-muted); font-size: 13px; }
+a { color: var(--sky-deep); text-underline-offset: 3px; }
+a:hover { color: var(--blossom); }
 
-.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 20px; font-size: 13px; color: var(--text-3); }
+/* The steps: upcoming ones are pencilled in, the current one is the blossom pill the panel's
+   nav uses, finished ones get a blossom tick. */
+.steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; list-style: none; padding: 0; margin: 0 0 22px; font-size: 14px; color: var(--ink-muted); }
 .steps li { display: flex; align-items: center; gap: 8px; }
-.steps li + li::before { content: ""; width: 22px; height: 1px; background: var(--border); }
-.steps .num { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); display: grid; place-items: center; font-size: 12px; }
-.steps li[aria-current="step"] { color: var(--text); font-weight: 600; }
-.steps li[aria-current="step"] .num { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.steps li.past .num { border-color: var(--primary); color: var(--primary); }
+.steps li + li::before { content: ""; width: 26px; border-top: 1.5px dashed var(--line); }
+.steps .step { display: inline-flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: var(--r-pill); }
+.steps .num { width: 26px; height: 26px; border-radius: 50%; border: 1.5px dashed var(--line); display: grid; place-items: center; font: 600 19px/1 var(--font-script); }
+.steps li[aria-current="step"] .step { background: var(--blossom-soft); color: var(--blossom-deep); font-weight: 600; padding-right: 14px; }
+.steps li[aria-current="step"] .num { background: var(--blossom); border: 0; color: var(--on-blossom); }
+.steps li.past .num { border: 1.5px solid var(--blossom); color: var(--blossom); font-size: 0; }
+.steps li.past .num::after { content: "✓"; font-size: 15px; font-family: var(--font); font-weight: 700; }
 
-.card { background: var(--card); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: 22px; margin-bottom: 16px; }
+/* ---------- paper ---------- */
+.card { position: relative; background: var(--paper); border-radius: var(--r-paper); box-shadow: var(--shadow-paper); padding: 20px 24px 22px; margin-bottom: 20px; }
 .card > :last-child { margin-bottom: 0; }
-.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.card > h2 { margin: -2px -24px 14px; padding: 0 24px 10px; border-bottom: 1.5px dashed var(--line); }
+.tilt { transform: rotate(-1deg); }
+.tape {
+  position: absolute; top: -9px; left: 50%; width: 74px; height: 20px; margin-left: -37px;
+  background: color-mix(in srgb, var(--blossom) 38%, transparent); transform: rotate(-4deg); pointer-events: none;
+}
+.tape.blue { background: color-mix(in srgb, var(--sky-deep) 36%, transparent); transform: rotate(3deg); }
+/* The one-time password is a sticky note: pink paper, deep blossom ink. */
+.card.sticky { background: var(--note); color: var(--blossom-deep); transform: rotate(0.8deg); }
+.card.sticky > h2 { color: var(--blossom-deep); border-bottom-color: color-mix(in srgb, var(--blossom) 45%, transparent); }
+.card.sticky .muted, .card.sticky .kv dt { color: var(--blossom-deep); }
+/* The connected server is a dashed ticket stub, like the panel's figures. */
+.ticket { border: 1.5px dashed var(--line); border-radius: var(--r-ticket); background: var(--paper); padding: 12px 18px; margin-bottom: 20px; }
+.ticket h2 { font: 600 15px/1.5 var(--mono); color: var(--ink); margin: 0 0 2px; overflow-wrap: anywhere; }
+.ticket .muted { overflow-wrap: anywhere; }
+.card-head > div { min-width: 0; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+/* ---------- form ---------- */
 .grid { display: grid; grid-template-columns: 1fr 110px; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.field label, .label { font-size: 13px; color: var(--text-2); font-weight: 500; }
+.field label, .label { font-size: 13px; color: var(--ink-muted); font-weight: 500; }
+.label { margin-bottom: 6px; }
 input[type="text"], input[type="password"], input[type="number"], textarea {
-  width: 100%; min-height: 38px; padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--card); color: var(--text); font: inherit; outline: none; transition: border-color .18s;
+  width: 100%; min-height: 38px; padding: 7px 11px; border: 1px solid var(--line); border-radius: var(--r-field);
+  background: var(--paper); color: var(--ink); font: inherit; outline: none; transition: border-color .18s, box-shadow .18s;
 }
+input::placeholder, textarea::placeholder { color: var(--line); opacity: 1; }
 textarea { min-height: 108px; resize: vertical; font: 12px/1.5 var(--mono); }
-input:focus-visible, textarea:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
-input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--err); }
+input:hover, textarea:hover { border-color: var(--ink-muted); }
+input:focus-visible, textarea:focus-visible { border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 14%, transparent); }
+input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--error); }
 .mono { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
 
+/* Buttons are pills: the primary one solid ink, the rest drawn with a pen in dashes. */
 button { font: inherit; cursor: pointer; }
 .btn {
-  min-height: 38px; padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--border);
-  background: var(--card); color: var(--text); font-weight: 500; transition: background .18s, border-color .18s, opacity .18s;
+  min-height: 36px; padding: 0 18px; border-radius: var(--r-pill); border: 1.5px dashed var(--line);
+  background: transparent; color: var(--ink); font-weight: 500; transition: border-color .18s, opacity .18s;
 }
-.btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
-.btn:focus-visible, .seg button:focus-visible, .chip input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+.btn:hover:not(:disabled) { border-color: var(--ink); }
+.btn:focus-visible, .seg button:focus-visible, .tabs button:focus-visible, .chip input:focus-visible + span { outline: 2px solid var(--blossom); outline-offset: 2px; }
 .btn:disabled { opacity: .55; cursor: default; }
-.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 600; }
-.btn.primary:hover:not(:disabled) { color: var(--on-primary); opacity: .9; }
-.btn.danger { color: var(--err); border-color: var(--err); }
-.btn.small { min-height: 30px; padding: 0 10px; font-size: 13px; }
-.btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
+.btn.primary { background: var(--ink); border: 1.5px solid var(--ink); color: var(--on-ink); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { opacity: .88; }
+.btn.danger { color: var(--error); border-color: var(--error); }
+.btn.small { min-height: 30px; padding: 0 12px; font-size: 13px; }
 .btn.wide { width: 100%; min-height: 44px; font-size: 16px; margin: 8px 0 12px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
-.seg { display: inline-flex; padding: 3px; gap: 3px; background: var(--fill); border-radius: var(--radius); margin-bottom: 14px; }
-.seg button { border: 0; background: transparent; color: var(--text-2); padding: 5px 14px; border-radius: 8px; font-size: 14px; }
-.seg button[aria-pressed="true"] { background: var(--card); color: var(--text); font-weight: 600; }
+/* A choice of a few: the picked one is blossom-soft, as in the panel. */
+.seg { display: inline-flex; flex-wrap: wrap; padding: 3px; gap: 3px; background: var(--hairline); border-radius: var(--r-paper); margin-bottom: 14px; }
+.seg button { border: 0; background: transparent; color: var(--ink-muted); padding: 4px 14px; border-radius: 4px; font-size: 14px; }
+.seg button[aria-pressed="true"] { background: var(--blossom-soft); color: var(--blossom-deep); font-weight: 600; }
+.seg.small { margin: 0; }
+.seg.small button { font-size: 12px; padding: 2px 10px; }
 
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
 .chip { position: relative; }
 .chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-.chip span { display: block; padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 14px; color: var(--text-2); }
-.chip input:checked + span { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+.chip span { display: block; padding: 5px 15px; border: 1.5px dashed var(--line); border-radius: var(--r-pill); font-size: 14px; color: var(--ink-muted); }
+.chip input:checked + span { background: var(--blossom-soft); border: 1.5px solid var(--blossom); color: var(--blossom-deep); font-weight: 600; }
 
-.note { border-radius: var(--radius); padding: 11px 14px; font-size: 14px; margin-bottom: 14px; background: var(--fill); color: var(--text-2); }
-.note.err { background: var(--err-soft); color: var(--err); }
-.note.warn { background: var(--warn-soft); color: var(--warn); }
-.note.ok { background: var(--primary-soft); color: var(--primary); }
-.note { overflow-wrap: anywhere; }
+/* Notices are notes stuck on the page: warnings on pink note paper, errors in a red pen. */
+.note { border-radius: var(--r-paper); padding: 12px 16px; font-size: 14px; margin-bottom: 14px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-paper); overflow-wrap: anywhere; }
+.note.err { border: 1.5px dashed var(--error); box-shadow: none; }
+.note.err strong { color: var(--error); }
+.note.warn { background: var(--note); color: var(--blossom-deep); }
+.note.ok { background: var(--sky-photo); box-shadow: none; }
 .note strong { display: block; margin-bottom: 2px; }
 .note span { display: block; }
 .note .mono { color: inherit; opacity: .9; white-space: pre-wrap; font-size: 12px; display: block; margin-top: 6px; }
 .note .btn { margin-top: 10px; }
 
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0 0 10px; font-size: 14px; }
-.kv dt { color: var(--text-3); }
+.kv dt { color: var(--ink-muted); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 
-.progress { list-style: none; margin: 16px 0 0; padding: 0; }
-.progress li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border-soft); align-items: start; }
-.progress .dot { width: 18px; height: 18px; margin-top: 3px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 11px; line-height: 1; font-weight: 700; }
-.progress li[data-status="running"] .dot { border-color: var(--primary); border-top-color: transparent; animation: spin .8s linear infinite; }
-.progress li[data-status="done"] .dot { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.progress li[data-status="failed"] .dot { background: var(--err); border-color: var(--err); color: var(--card); }
-.progress li[data-status="skipped"] .dot { color: var(--text-3); }
-.progress li[data-status=""] { color: var(--text-3); }
-.progress .detail { display: block; font-size: 12px; color: var(--text-3); overflow-wrap: anywhere; white-space: pre-wrap; }
+/* ---------- deploy progress ---------- */
+.progress { list-style: none; margin: 18px 0 0; padding: 0; }
+.progress li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--hairline); align-items: start; }
+.progress .dot { width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; border: 1.5px dashed var(--line); display: grid; place-items: center; font-size: 11px; line-height: 1; font-weight: 700; }
+.progress li[data-status="running"] .dot { border: 2px solid var(--ink); border-top-color: transparent; animation: spin .8s linear infinite; }
+.progress li[data-status="done"] .dot { background: var(--blossom); border: 0; color: var(--on-blossom); }
+.progress li[data-status="failed"] .dot { background: var(--error); border: 0; color: var(--paper); }
+.progress li[data-status="skipped"] .dot { color: var(--ink-muted); }
+.progress li[data-status=""] { color: var(--ink-muted); }
+.progress .detail { display: block; font-size: 12px; color: var(--ink-muted); overflow-wrap: anywhere; white-space: pre-wrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .progress li[data-status="running"] .dot { animation-duration: 2.4s; } }
+@media (prefers-reduced-motion: reduce) {
+  .progress li[data-status="running"] .dot { animation-duration: 2.4s; }
+  .tilt, .card.sticky, .polaroid { transform: none !important; }
+}
 
-.share { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; }
-.qr { width: 200px; height: 200px; border-radius: var(--radius); background: #fff; border: 1px solid var(--border-soft); display: block; }
-.linkbox { background: var(--fill); border-radius: var(--radius); padding: 10px 12px; max-height: 118px; overflow: auto; margin-bottom: 10px; }
-.secret { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--fill); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; }
+/* ---------- result ---------- */
+.share { display: grid; grid-template-columns: 220px 1fr; gap: 24px; align-items: start; }
+.polaroid { position: relative; width: 220px; padding: 10px 10px 14px; background: var(--paper); border-radius: var(--r-paper); box-shadow: var(--shadow-paper); transform: rotate(-2deg); }
+/* Scanners want dark modules on light paper, whatever the theme. */
+.qr { width: 200px; height: 200px; border-radius: 3px; background: #fff; display: block; }
+.linkbox { background: var(--sky-photo); border-radius: var(--r-paper); padding: 10px 12px; max-height: 118px; overflow: auto; margin-bottom: 12px; }
+.secret { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--paper); color: var(--ink); border-radius: var(--r-paper); padding: 10px 12px; margin-bottom: 14px; }
 .secret .mono { font-size: 15px; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
-.tabs button { border: 0; background: transparent; color: var(--text-2); padding: 4px 10px; border-radius: 8px; font-size: 13px; }
-.tabs button[aria-selected="true"] { background: var(--fill); color: var(--text); font-weight: 600; }
+.tabs button { border: 0; background: transparent; color: var(--ink-muted); padding: 3px 12px; border-radius: var(--r-pill); font-size: 13px; }
+.tabs button[aria-selected="true"] { background: var(--blossom-soft); color: var(--blossom-deep); font-weight: 600; }
 .apps { margin: 0 0 10px; padding-left: 20px; }
-footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+footer { margin-top: 30px; font-size: 13px; color: var(--ink-muted); display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+footer .prefs { display: flex; align-items: center; gap: 8px; flex-basis: 100%; }
 
 @media (max-width: 560px) {
-  .wrap { padding: 18px 14px 40px; }
-  .card { padding: 16px; }
+  .wrap { padding: 18px 16px 40px; }
+  h1 { font-size: 34px; line-height: 38px; }
+  .card { padding: 16px 16px 18px; }
+  .card > h2 { margin: -2px -16px 12px; padding: 0 16px 8px; }
   .grid, .share { grid-template-columns: 1fr; }
-  .qr { margin: 0 auto; }
+  .polaroid { margin: 4px auto 8px; }
   .steps .txt { display: none; }
   .steps li[aria-current="step"] .txt { display: inline; }
 }
@@ -147,11 +211,11 @@ footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex;
 <body>
 <div class="wrap">
   <header>
-    <div class="brand"><span class="mark" aria-hidden="true">M</span><span>Mintyx <small data-i18n="brandSub"></small></span></div>
-    <div class="toolbar">
-      <button class="btn small ghost" id="langToggle" type="button"></button>
-      <button class="btn small ghost" id="themeToggle" type="button"></button>
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect class="logo-bg" width="32" height="32" rx="7"/><path class="logo-m" d="M9 22V10l7 7 7-7v12"/><circle class="logo-dot" cx="26" cy="6" r="3.2"/></svg>
+      <span class="brand-name">Mintyx</span><span class="brand-sub" data-i18n="brandSub"></span>
     </div>
+    <button class="btn small" id="langToggle" type="button"></button>
   </header>
 
   <div class="note err" id="noToken" hidden data-i18n="noToken"></div>
@@ -159,16 +223,17 @@ footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex;
 
   <main id="app" hidden>
     <ol class="steps" id="stepper">
-      <li data-step="connect"><span class="num">1</span><span class="txt" data-i18n="stepConnect"></span></li>
-      <li data-step="deploy"><span class="num">2</span><span class="txt" data-i18n="stepDeploy"></span></li>
-      <li data-step="done"><span class="num">3</span><span class="txt" data-i18n="stepDone"></span></li>
+      <li data-step="connect"><span class="step"><span class="num">1</span><span class="txt" data-i18n="stepConnect"></span></span></li>
+      <li data-step="deploy"><span class="step"><span class="num">2</span><span class="txt" data-i18n="stepDeploy"></span></span></li>
+      <li data-step="done"><span class="step"><span class="num">3</span><span class="txt" data-i18n="stepDone"></span></span></li>
     </ol>
 
     <!-- 1. connect -->
     <section id="connectView">
       <h1 data-i18n="connectTitle"></h1>
       <p class="lead" data-i18n="connectLead"></p>
-      <form class="card" id="connectForm" autocomplete="off" novalidate>
+      <form class="card tilt" id="connectForm" autocomplete="off" novalidate>
+        <span class="tape" aria-hidden="true"></span>
         <div class="grid">
           <div class="field"><label for="host" data-i18n="host"></label>
             <input type="text" id="host" inputmode="url" spellcheck="false" autocapitalize="off" placeholder="203.0.113.10"></div>
@@ -206,7 +271,7 @@ footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex;
     </section>
 
     <!-- connected server summary -->
-    <section class="card" id="serverCard" hidden>
+    <section class="ticket" id="serverCard" hidden>
       <div class="card-head">
         <div><h2 id="serverName" class="mono"></h2><div class="muted" id="serverFingerprint"></div></div>
         <button class="btn small" id="disconnectBtn" type="button" data-i18n="disconnect"></button>
@@ -230,7 +295,7 @@ footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex;
     <section id="resultView" hidden>
       <div class="note ok" id="alreadyNote" hidden><strong data-i18n="alreadyTitle"></strong><span data-i18n="alreadyBody"></span></div>
 
-      <div class="card" id="passwordCard" hidden>
+      <div class="card sticky" id="passwordCard" hidden>
         <h2 data-i18n="panelPasswordTitle"></h2>
         <p class="muted" data-i18n="panelPasswordHint"></p>
         <dl class="kv"><dt data-i18n="panelUser"></dt><dd class="mono" id="adminUser"></dd></dl>
@@ -243,7 +308,7 @@ footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex;
         <h2 data-i18n="shareTitle"></h2>
         <p class="muted" data-i18n="shareHint"></p>
         <div class="share">
-          <img class="qr" id="qr" alt="">
+          <div class="polaroid"><span class="tape blue" aria-hidden="true"></span><img class="qr" id="qr" alt=""></div>
           <div>
             <div class="linkbox mono" id="link"></div>
             <div class="row"><button class="btn small" type="button" id="copyLink" data-i18n="copyLink"></button>
@@ -291,6 +356,13 @@ footer { margin-top: 28px; font-size: 13px; color: var(--text-3); display: flex;
   </main>
 
   <footer>
+    <div class="prefs"><span id="themeLabel" data-i18n="themeLabel"></span>
+      <div class="seg small" role="group" aria-labelledby="themeLabel" id="themeSeg">
+        <button type="button" data-pref="system" data-i18n="themeSystem"></button>
+        <button type="button" data-pref="day" data-i18n="themeDay"></button>
+        <button type="button" data-pref="night" data-i18n="themeNight"></button>
+        <button type="button" data-pref="midnight" data-i18n="themeMidnight"></button>
+      </div></div>
     <span data-i18n="footerLocal"></span>
     <a data-guide="security" data-i18n="securityGuide"></a>
   </footer>
@@ -317,7 +389,8 @@ const OS_NAMES = { ios: "iPhone / iPad", android: "Android", windows: "Windows",
 
 const TEXT = {
   zh: {
-    brandSub: "部署器", langName: "English", themeLight: "浅色", themeDark: "深色",
+    brandSub: "部署器", langName: "English",
+    themeLabel: "外观", themeSystem: "跟随系统", themeDay: "日间", themeNight: "夜间", themeMidnight: "午夜",
     noToken: "这个页面需要从 mintyx-deploy 程序打印出的完整地址打开（地址末尾带一段密钥）。请回到程序窗口，复制那一行地址重新打开。",
     noPayload: "这份程序里没有打包面板文件，无法部署。请用 scripts/build-deployer.sh 构建，或启动时加 -panel-binary 指定面板程序。",
     stepConnect: "连接服务器", stepDeploy: "部署", stepDone: "完成",
@@ -385,7 +458,8 @@ const TEXT = {
     e_panel: "面板返回了错误。", e_timeout: "操作超时。", e_error: "出错了。", e_network: "无法联系本机的 mintyx-deploy 程序，它可能已经退出。",
   },
   en: {
-    brandSub: "Deploy", langName: "中文", themeLight: "Light", themeDark: "Dark",
+    brandSub: "Deploy", langName: "中文",
+    themeLabel: "Appearance", themeSystem: "Follow system", themeDay: "Day", themeNight: "Night", themeMidnight: "Midnight",
     noToken: "Open this page with the full address that mintyx-deploy printed (it ends with a secret). Go back to the program window and copy that line again.",
     noPayload: "This build does not include the panel program, so it cannot deploy. Build it with scripts/build-deployer.sh, or start it with -panel-binary.",
     stepConnect: "Connect", stepDeploy: "Deploy", stepDone: "Done",
@@ -461,7 +535,10 @@ const store = {
 };
 
 let lang = store.get("mintyx.lang") || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
-let theme = store.get("mintyx.theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+/* The panel's four appearances; "system" follows the computer's light or dark setting. */
+const THEMES = ["system", "day", "night", "midnight"];
+const darkQuery = matchMedia("(prefers-color-scheme: dark)");
+let themePref = THEMES.includes(store.get("mintyx.theme")) ? store.get("mintyx.theme") : "system";
 let token = "";
 let state = null;
 let authMode = "password";
@@ -501,7 +578,8 @@ function el(tag, props, ...children) {
 
 function applyStatic() {
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
-  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.theme = themePref === "system" ? (darkQuery.matches ? "night" : "day") : themePref;
+  for (const b of $("themeSeg").children) b.setAttribute("aria-pressed", String(b.dataset.pref === themePref));
   document.title = "Mintyx " + t("brandSub");
   for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
   for (const a of document.querySelectorAll("a[data-guide]")) {
@@ -510,7 +588,6 @@ function applyStatic() {
     a.rel = "noopener noreferrer";
   }
   $("langToggle").textContent = t("langName");
-  $("themeToggle").textContent = theme === "dark" ? t("themeLight") : t("themeDark");
 }
 
 async function api(method, path, body) {
@@ -800,7 +877,9 @@ function setAuthMode(mode) {
 
 function wire() {
   $("langToggle").addEventListener("click", () => { lang = lang === "zh" ? "en" : "zh"; store.set("mintyx.lang", lang); render(); });
-  $("themeToggle").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; store.set("mintyx.theme", theme); render(); });
+  for (const b of $("themeSeg").children) {
+    b.addEventListener("click", () => { themePref = b.dataset.pref; store.set("mintyx.theme", themePref); applyStatic(); });
+  }
   $("authPassword").addEventListener("click", () => setAuthMode("password"));
   $("authKey").addEventListener("click", () => setAuthMode("key"));
   $("keyFileBtn").addEventListener("click", () => $("keyFile").click());
@@ -870,6 +949,7 @@ function readToken() {
 }
 
 applyStatic();
+darkQuery.addEventListener("change", () => { if (themePref === "system") applyStatic(); });
 token = readToken();
 if (!token) {
   $("noToken").hidden = false;

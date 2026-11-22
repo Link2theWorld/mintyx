@@ -153,9 +153,7 @@ export function AppsPage() {
       {job?.state === "failed" && dismissed !== job.startedAt && <FailedJob job={job} onClose={() => setDismissed(job.startedAt)} />}
       {data && categories.map((category) => (
         <section key={category} style={{ marginBottom: 24 }} aria-label={labelOr(`apps.category.${category}`, category, t)}>
-          <Typography.Title level={3} style={{ fontSize: 16, margin: "0 0 12px" }}>
-            {labelOr(`apps.category.${category}`, category, t)}
-          </Typography.Title>
+          <h3 className="subhead">{labelOr(`apps.category.${category}`, category, t)}</h3>
           <div className="app-grid">
             {data.apps.filter((a) => a.category === category).map((app) => (
               <Card key={app.id} size="small" data-testid={`app-${app.id}`}>

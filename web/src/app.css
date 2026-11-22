@@ -44,6 +44,8 @@ body {
 
 /* ---------- type ---------- */
 .hand { font-family: var(--font-hand); font-weight: 400; }
+/* A heading inside a card or between cards: Flover's 22px caption size. */
+.subhead { font: 400 22px/26px var(--font-hand); color: var(--ink); margin: 0 0 8px; }
 .script { font-family: var(--font-script); font-weight: 600; font-variant-numeric: tabular-nums; }
 .ant-card .ant-card-head-title { font-family: var(--font-hand); font-weight: 400; color: var(--sky-deep); }
 .ant-table-thead > tr > th.ant-table-cell { font-family: var(--font-hand); font-weight: 400; font-size: 20px; border-bottom: 1.5px dashed var(--line) !important; }
@@ -183,7 +185,6 @@ body {
 .ant-alert-warning .ant-alert-title, .ant-alert-warning .ant-alert-description { color: var(--blossom-deep); }
 .ant-alert-info { background: var(--paper); }
 
-.attack-stat { font-size: 28px; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; }
 .attack-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; vertical-align: baseline; }
 .attack-kind-tag { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 0; }
 .attack-kind-count { font-variant-numeric: tabular-nums; opacity: 0.75; }
@@ -191,7 +192,7 @@ body {
 .attack-kind-list, .attack-bar-list, .attack-net-list { list-style: none; margin: 0; padding: 0; }
 .attack-kind-row, .attack-bar-row {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; margin: 0;
-  border: 0; border-radius: 10px; font: inherit; text-align: start; cursor: pointer;
+  border: 0; border-radius: var(--r-paper); font: inherit; text-align: start; cursor: pointer;
 }
 .attack-kind-row:focus-visible, .attack-bar-row:focus-visible, .attack-trend-col:focus-visible { outline: 2px solid; outline-offset: 1px; }
 .attack-bar-row:disabled { cursor: default; }
@@ -204,13 +205,13 @@ body {
 .attack-trend-axis { display: flex; gap: 2px; margin-top: 4px; font-size: 11px; }
 .attack-trend-axis span { flex: 1; text-align: center; white-space: nowrap; overflow: visible; }
 .attack-origins-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 32px; align-items: start; }
-.attack-bar-list { margin-top: 8px; }
+.attack-bar-list { margin-top: 4px; }
 .attack-bar-row { padding: 6px 10px; }
 .attack-bar-label { flex: 0 0 34%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attack-bar-track { flex: 1; height: 8px; }
-.attack-bar-fill { display: block; height: 100%; min-width: 4px; border-radius: 0 4px 4px 0; }
+.attack-bar-fill { display: block; height: 100%; min-width: 4px; border-radius: 0 4px 4px 0; background: var(--blossom); }
 .attack-bar-value { flex: none; font-size: 12px; opacity: 0.75; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.attack-net-list { margin-top: 8px; }
+.attack-net-list { margin-top: 4px; }
 .attack-net-list li { padding: 8px 0; }
 .attack-net-list li:last-child { border-bottom: none !important; }
 @media (max-width: 767.98px) {
@@ -222,5 +223,5 @@ body {
 .app-log {
   margin: 8px 0 0; padding: 8px 12px; max-height: 280px; overflow: auto;
   font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all;
-  border-radius: 8px; background: rgba(127, 127, 127, 0.12);
+  border-radius: var(--r-paper); background: var(--sky-photo); color: var(--ink);
 }

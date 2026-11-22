@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import { keys, useAttackers, useAttackSummary } from "../api/queries";
 import { attackKinds, type Attacker, type AttackSummary } from "../api/schemas";
 import { PageHeader } from "../components/PageHeader";
+import { Ticket } from "../components/Paper";
 import { QueryState } from "../components/QueryState";
 import { useI18n } from "../i18n/I18nProvider";
 import { compactNumber, countryName, kindColor, kindLabelKey, niceCeil, sortKinds, trendDays } from "../lib/attacks";
@@ -16,6 +17,12 @@ import { formatDateTime } from "../lib/format";
 import { useIsMobile } from "../lib/useIsMobile";
 import { useThemePref } from "../theme/ThemeProvider";
 import { AttackReportDialog } from "./AttackReportDialog";
+
+/** "3.4万" → 3.4 with 万 as the ticket's small unit, the way the other pages write "133GB". */
+function numberAndUnit(text: string): { value: string; unit?: string } {
+  const m = /^([\d.,]+)(\D+)$/.exec(text);
+  return m?.[1] && m[2] ? { value: m[1], unit: m[2] } : { value: text };
+}
 
 function useKindLabel() {
   const { t } = useI18n();
@@ -55,7 +62,7 @@ function Trend({ summary }: { summary: AttackSummary }) {
   return (
     <figure className="attack-trend" aria-label={t("attacks.trend.title", { days: days.length })}>
       <Flex justify="space-between" align="baseline">
-        <Typography.Text strong>{t("attacks.trend.title", { days: days.length })}</Typography.Text>
+        <span className="subhead">{t("attacks.trend.title", { days: days.length })}</span>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t("attacks.trend.utc")}</Typography.Text>
       </Flex>
       <div className="attack-trend-plot" style={{ borderBottom: `1px solid ${token.colorBorder}` }}>
@@ -178,7 +185,7 @@ function OriginsCard({ summary, country, onCountry }: { summary: AttackSummary; 
           ) : (
             <div className="attack-origins-grid">
               <div>
-                <Typography.Text strong>{t("attacks.origins.countries")}</Typography.Text>
+                <h3 className="subhead">{t("attacks.origins.countries")}</h3>
                 <ul className="attack-bar-list">
                   {summary.countries.map((c) => {
                     const active = country !== "" && country === c.country;
@@ -194,7 +201,7 @@ function OriginsCard({ summary, country, onCountry }: { summary: AttackSummary; 
                         >
                           <span className="attack-bar-label">{c.country === "" ? t("attacks.unknown") : countryName(c.country, lang)}</span>
                           <span className="attack-bar-track">
-                            <span className="attack-bar-fill" style={{ width: `${(c.sources / most) * 100}%`, background: token.colorPrimary }} />
+                            <span className="attack-bar-fill" style={{ width: `${(c.sources / most) * 100}%` }} />
                           </span>
                           <span className="attack-bar-value">{t("attacks.sources", { n: compactNumber(c.sources, lang) })}</span>
                         </button>
@@ -204,7 +211,7 @@ function OriginsCard({ summary, country, onCountry }: { summary: AttackSummary; 
                 </ul>
               </div>
               <div>
-                <Typography.Text strong>{t("attacks.origins.networks")}</Typography.Text>
+                <h3 className="subhead">{t("attacks.origins.networks")}</h3>
                 <ul className="attack-net-list">
                   {summary.networks.map((n) => (
                     <li key={`${n.network}|${n.country}|${n.abuseEmail}`} style={{ borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
@@ -372,16 +379,10 @@ export function AttacksPage() {
             <Card><Empty description={s.sshLog === "starting" ? t("attacks.empty.starting") : t("attacks.empty")} /></Card>
           ) : (
             <>
-              <div className="stat-grid">
-                <Card>
-                  <Typography.Text type="secondary">{t("attacks.stat.hits")}</Typography.Text>
-                  <div className="attack-stat">{compactNumber(s.hits, lang)}</div>
-                </Card>
-                <Card>
-                  <Typography.Text type="secondary">{t("attacks.stat.sources")}</Typography.Text>
-                  <div className="attack-stat">{compactNumber(s.sources, lang)}</div>
-                </Card>
-              </div>
+              <Ticket items={[
+                { label: t("attacks.stat.hits"), ...numberAndUnit(compactNumber(s.hits, lang)) },
+                { label: t("attacks.stat.sources"), ...numberAndUnit(compactNumber(s.sources, lang)) },
+              ]} />
               <KindsCard summary={s} kind={kind} onKind={setKind} />
               <OriginsCard summary={s} country={country} onCountry={setCountry} />
               <SourcesCard summary={s} kind={kind} country={country} onKind={setKind} onCountry={setCountry} onReport={setReportIp} />

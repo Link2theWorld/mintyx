@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/ysuhao/mintyx-next/internal/deploy"
 	"github.com/ysuhao/mintyx-next/internal/hostcheck"
+	"github.com/ysuhao/mintyx-next/web"
 )
 
 //go:embed page.html
@@ -207,8 +209,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// pageFonts are the panel's handwriting fonts, served from this program so the page still
+// contacts nobody else. They are public, so they need no token.
+var pageFonts = map[string]bool{"/fonts/LongCang-subset.woff2": true, "/fonts/Caveat-600-subset.woff2": true}
+
 func (s *Server) servePage(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.NotFound(w, r)
+		return
+	}
+	if pageFonts[r.URL.Path] {
+		data, err := fs.ReadFile(web.HandFonts(), strings.TrimPrefix(r.URL.Path, "/fonts/"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "font/woff2")
+		_, _ = w.Write(data)
+		return
+	}
+	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
@@ -217,9 +237,10 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request) {
 	// URL-safe base64 (allowed in CSP nonces): a "/" from the standard alphabet could put
 	// something that looks like an address into the page.
 	nonce := base64.RawURLEncoding.EncodeToString(raw[:])
-	// Nothing may load from anywhere else: no CDN, no fonts, no analytics.
+	// Nothing may load from anywhere else: no CDN, no web fonts, no analytics. The two fonts
+	// come from this program itself.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+
-		"'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		"'; img-src data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(bytes.ReplaceAll(pageHTML, []byte(noncePattern), []byte(nonce)))
 }

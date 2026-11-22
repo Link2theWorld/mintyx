@@ -4,15 +4,18 @@ import type { ThemeName } from "../theme/themes";
 
 /**
  * One colour per attack kind, in a fixed order so a kind keeps its colour whatever else is on
- * screen. Neighbouring colours were checked to stay apart for colour-blind readers on each
- * theme's card background; the two dark themes share the darker steps. Three of the light
- * colours are below 3:1 against white, so a colour never appears without its label.
+ * screen. Drawn from Flover Diary: the first and third are its sky-deep and blossom, the rest
+ * are an amber, a lilac and a teal that sit with them. Each set passes the data-viz palette
+ * checks (lightness band, chroma, neighbours apart under protan/deutan simulation, and 3:1
+ * against the card) on its theme's paper; night and midnight share the darker steps. A colour
+ * never appears without its label.
  */
 const palette: Record<"light" | "dark", Record<AttackKind, string>> = {
-  light: { ssh_login: "#2a78d6", ssh_invalid_user: "#eb6834", ssh_scan: "#1baf7a", line_probe: "#eda100", line_bad_auth: "#e87ba4" },
-  dark: { ssh_login: "#3987e5", ssh_invalid_user: "#d95926", ssh_scan: "#199e70", line_probe: "#c98500", line_bad_auth: "#d55181" },
+  light: { ssh_login: "#2f6fb5", ssh_invalid_user: "#cc7a24", ssh_scan: "#b83a73", line_probe: "#8a7fd6", line_bad_auth: "#2a9d8f" },
+  dark: { ssh_login: "#3f80d0", ssh_invalid_user: "#c57a2a", ssh_scan: "#c9508a", line_probe: "#8478da", line_bad_auth: "#22967f" },
 };
-const UNKNOWN_COLOR = "#8a8f8c";
+/** Flover's line colour: a quiet blue-grey that no kind uses. */
+const UNKNOWN_COLOR = "#7f95b0";
 
 export function isAttackKind(kind: string): kind is AttackKind {
   return (attackKinds as readonly string[]).includes(kind);

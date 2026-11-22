@@ -5,15 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mintyx — frontend not built</title>
 <style>
-  body { font: 16px/1.6 system-ui, sans-serif; max-width: 36rem; margin: 15vh auto; padding: 0 1.5rem; color: #1f2a25; background: #f7faf8; }
-  code { background: #e6f4ee; padding: .1em .35em; border-radius: 4px; }
+  /* The Flover Diary day palette (web/src/theme/themes.ts); the handwriting fonts are part of the build this page stands in for. */
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; box-sizing: border-box;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+    color: #1b2738; background: #e6eff8 radial-gradient(rgba(127, 149, 176, 0.28) 1.2px, transparent 1.3px) 0 0 / 22px 22px;
+  }
+  main { max-width: 34rem; background: #fff; border-radius: 6px; box-shadow: 0 6px 14px rgba(27, 39, 56, 0.16); padding: 24px 28px; }
+  h1 { margin: 0 0 8px; font: 600 34px/1.2 "Segoe Print", "Bradley Hand", cursive; }
+  code { background: #cfdff0; padding: .1em .35em; border-radius: 4px; }
+  p { margin: 0 0 12px; } p:last-child { margin: 0; color: #40516a; }
 </style>
 </head>
 <body>
+<main>
 <h1>Mintyx</h1>
 <p>This binary was built without the web interface. Build it with
 <code>cd web &amp;&amp; npm ci &amp;&amp; npm run build</code>, then rebuild the Go binary.</p>
 <p>此程序编译时未包含网页界面。请先在 <code>web</code> 目录执行
 <code>npm ci &amp;&amp; npm run build</code>，再重新编译。</p>
+</main>
 </body>
 </html>

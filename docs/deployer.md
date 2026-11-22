@@ -72,8 +72,8 @@ sudo mintyx reset-password -data /var/lib/mintyx
 SSH 密码、私钥、面板管理员密码只存在于程序运行期间的内存里，不写入硬盘，也不写入日志。
 
 本地网页只监听 `127.0.0.1` 上的随机端口，每次启动生成一个随机密钥（在地址的 `#` 之后），
-没有这个密钥或来自其他站点的请求一律拒绝。页面不加载任何外部资源，部署器本身也不访问任何第三方；
-页面上的教程链接只是普通链接，点了才会由浏览器打开。
+没有这个密钥或来自其他站点的请求一律拒绝。页面不加载任何外部资源，用到的两款手写字体也由部署器自己提供，
+部署器本身不访问任何第三方；页面上的教程链接只是普通链接，点了才会由浏览器打开。
 
 ## 使用
 
@@ -97,5 +97,15 @@ scripts/build-deployer.sh
 
 直接 `go build ./cmd/mintyx-deploy` 也能编译，但得到的程序里没有面板文件，启动时会说明这一点，
 此时需要用 `-panel-binary` 指定。
+
+不连真服务器也能看部署器的每一步界面：下面的命令在本机起一台假的服务器和部署器页面，
+按它打印的地址打开页面，再用它打印的 IP、端口、用户名和密码连接。
+
+```sh
+MINTYX_DEPLOY_DEMO=1 go test -v -run TestDemo -timeout 0 ./internal/deploy/localui
+```
+
+页面的外观跟面板一致（Flover Diary），配色抄自 `web/src/theme/themes.ts`，改面板配色时一起改；
+手写字体就是面板那两个子集文件，加了部署器页面的文字后要重新运行 `node web/scripts/subset-fonts.mjs`。
 
 升级 Xray 版本：改 `internal/deploy/scripts.go` 里的 `XrayVersion` 和两个资源文件的 SHA-256。

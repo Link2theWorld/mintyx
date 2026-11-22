@@ -46,3 +46,12 @@ func TestDistServesIndex(t *testing.T) {
 		t.Fatalf("Dist() has no index.html: %v", err)
 	}
 }
+
+func TestHandFontsAreEmbedded(t *testing.T) {
+	for _, name := range []string{"LongCang-subset.woff2", "Caveat-600-subset.woff2"} {
+		data, err := fs.ReadFile(HandFonts(), name)
+		if err != nil || len(data) < 4 || string(data[:4]) != "wOF2" {
+			t.Errorf("%s: %d bytes, err %v; want a WOFF2 file", name, len(data), err)
+		}
+	}
+}

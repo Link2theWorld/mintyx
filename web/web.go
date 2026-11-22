@@ -1,4 +1,5 @@
-// Package web embeds the built single-page frontend.
+// Package web embeds the built single-page frontend, and the handwriting fonts on their own
+// for the deployer's page, which shares the panel's look without the rest of the build.
 //
 // A fresh checkout only contains dist/unbuilt.html (tracked in git), so the
 // embed always has something to match and `go build` works before any npm
@@ -15,6 +16,11 @@ import (
 //go:embed all:dist
 var embedded embed.FS
 
+// The subsets checked into the source tree, so `go build` has them before any npm build.
+//
+//go:embed src/assets/fonts/LongCang-subset.woff2 src/assets/fonts/Caveat-600-subset.woff2
+var handFonts embed.FS
+
 const (
 	indexName       = "index.html"
 	placeholderName = "unbuilt.html"
@@ -27,6 +33,16 @@ func Dist() fs.FS {
 		panic(err) // the embed pattern guarantees dist exists
 	}
 	return withIndexFallback(sub)
+}
+
+// HandFonts returns the Long Cang and Caveat subsets (SIL OFL 1.1, licences beside them in
+// web/src/assets/fonts), named LongCang-subset.woff2 and Caveat-600-subset.woff2.
+func HandFonts() fs.FS {
+	sub, err := fs.Sub(handFonts, "src/assets/fonts")
+	if err != nil {
+		panic(err) // the embed patterns guarantee the directory exists
+	}
+	return sub
 }
 
 // Built reports whether the embedded frontend is a real build rather than the placeholder.

@@ -5,8 +5,8 @@
 //        Caveat-wght.ttf       from github.com/google/fonts ofl/caveat (Caveat[wght].ttf)
 //   2. node scripts/subset-fonts.mjs
 //
-// Long Cang keeps every character the UI text uses (zh.ts and en.ts) plus printable ASCII, so
-// headings never fall back mid-word; Caveat keeps Latin, digits and a few symbols for numbers
+// Long Cang keeps every character the UI text uses (zh.ts, en.ts and the deployer's page, which
+// serves these same files) plus printable ASCII, so headings never fall back mid-word; Caveat keeps Latin, digits and a few symbols for numbers
 // and stickers. Rerun after adding UI text: a test fails when a character is missing.
 import { readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,9 +20,16 @@ const out = join(web, "src", "assets", "fonts");
 const ascii = Array.from({ length: 0x7f - 0x20 }, (_, i) => String.fromCharCode(0x20 + i)).join("");
 const extras = "·…“”‘’—–×→←↑↓✓%°";
 
-/** Every character in the two UI dictionaries, minus line breaks. */
+/** Files whose text may be drawn in the handwritten font. */
+export const uiTextFiles = [
+  join(web, "src", "i18n", "zh.ts"),
+  join(web, "src", "i18n", "en.ts"),
+  join(web, "..", "internal", "deploy", "localui", "page.html"),
+];
+
+/** Every character in the UI text, minus line breaks. */
 export function uiCharacters() {
-  const text = ["zh.ts", "en.ts"].map((f) => readFileSync(join(web, "src", "i18n", f), "utf8")).join("");
+  const text = uiTextFiles.map((f) => readFileSync(f, "utf8")).join("");
   return [...new Set([...text + ascii + extras])].filter((c) => c >= " ").sort().join("");
 }
 

@@ -188,10 +188,29 @@ func TestPageIsSelfContained(t *testing.T) {
 			t.Errorf("%s appears %d times, want it defined in one place", u, n)
 		}
 	}
-	for _, loader := range []string{"<link", "<script src", "<img src=\"http", "<iframe", "@import", "url(", "@font-face", "sendBeacon", "new WebSocket", "EventSource("} {
+	for _, loader := range []string{"<link", "<script src", "<img src=\"http", "<iframe", "@import", "sendBeacon", "new WebSocket", "EventSource("} {
 		if strings.Contains(page, loader) {
 			t.Errorf("the page contains %q, which loads or contacts something", loader)
 		}
+	}
+	// The only things it loads are the two fonts, from this same program.
+	if !strings.Contains(csp, "font-src 'self';") {
+		t.Errorf("CSP = %q, want font-src 'self'", csp)
+	}
+	for _, m := range regexp.MustCompile(`url\(([^)]*)\)`).FindAllStringSubmatch(page, -1) {
+		if !pageFonts[strings.Trim(m[1], `"'`)] {
+			t.Errorf("the page loads %s; only the fonts this program serves are allowed", m[0])
+		}
+	}
+	for path := range pageFonts {
+		resp := f.do("GET", path, nil, noToken())
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "font/woff2" || !bytes.HasPrefix(data, []byte("wOF2")) {
+			t.Errorf("GET %s = %d %q (%d bytes), want a WOFF2 font", path, resp.StatusCode, resp.Header.Get("Content-Type"), len(data))
+		}
+	}
+	if resp := f.do("GET", "/fonts/charset-hand.txt", nil, noToken()); resp.StatusCode != 404 {
+		t.Errorf("GET /fonts/charset-hand.txt = %d, want 404: only the two fonts are served", resp.StatusCode)
 	}
 	if strings.Contains(page, f.srv.token) {
 		t.Fatal("the token is baked into the page; it must only travel in the URL fragment")
