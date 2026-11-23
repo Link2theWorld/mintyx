@@ -10,6 +10,7 @@ import (
 	"github.com/Link2theWorld/mintyx/internal/engine"
 	"github.com/Link2theWorld/mintyx/internal/model"
 	"github.com/Link2theWorld/mintyx/internal/panel"
+	"github.com/Link2theWorld/mintyx/internal/quota"
 	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
@@ -142,6 +143,55 @@ func TestRestartSavesTrafficAndStartsAgain(t *testing.T) {
 	c, _ := st.GetClient(ctx, 1)
 	if c.UsedUp != 9 || proc.stops != 1 || proc.starts != 2 {
 		t.Fatalf("usedUp=%d stops=%d starts=%d, want 9, 1, 2", c.UsedUp, proc.stops, proc.starts)
+	}
+}
+
+// Xray drains its counters when they are read. A write failure just before a restart must not
+// erase the batch; the next quota read carries it, exactly once, together with newer traffic.
+func TestRestartKeepsTrafficWhoseStoreWriteFailed(t *testing.T) {
+	e, _, st := newTestEngine(t)
+	ctx := context.Background()
+	if err := e.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	batches := []map[string]model.Traffic{
+		{"c1": {Up: 5, Down: 700}},
+		{"c1": {Down: 10}},
+		{},
+	}
+	e.query = func(context.Context) (map[string]model.Traffic, error) {
+		batch := batches[0]
+		batches = batches[1:]
+		return batch, nil
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := e.Restart(cancelled); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := st.GetClient(ctx, 1); c.UsedDown != 0 {
+		t.Fatalf("the cancelled write stored %d bytes", c.UsedDown)
+	}
+
+	batch, err := e.Traffic(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := batch["c1"]; got.Up != 5 || got.Down != 710 {
+		t.Fatalf("next quota read = %+v, want the failed batch plus 10 newer bytes", got)
+	}
+	if err := st.AddTraffic(ctx, quota.ByClientID(batch)); err != nil {
+		t.Fatal(err)
+	}
+	again, err := e.Traffic(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, dup := again["c1"]; dup {
+		t.Fatalf("the drained batch was offered again: %+v", again["c1"])
+	}
+	if c, _ := st.GetClient(ctx, 1); c.UsedUp != 5 || c.UsedDown != 710 {
+		t.Fatalf("stored usage = up %d down %d, want 5 and 710 exactly once", c.UsedUp, c.UsedDown)
 	}
 }
 
