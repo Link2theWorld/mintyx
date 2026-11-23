@@ -225,4 +225,23 @@ func TestTickStartsMonthlyCyclesOnce(t *testing.T) {
 	}
 }
 
+// A stats batch cannot be split at midnight, so it belongs to the cycle in force when it is
+// collected. Resetting after storing it would erase whatever a visitor uses across the boundary.
+func TestTickCountsTrafficAfterAMonthlyReset(t *testing.T) {
+	last := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	st := &fakeStore{clients: map[int64]*model.Client{
+		1: {ID: 1, QuotaBytes: 1000, QuotaResetDay: 1, CycleStart: &last},
+	}}
+	source := func(context.Context) (map[string]model.Traffic, error) {
+		return map[string]model.Traffic{"c1": {Down: 100}}, nil
+	}
+	midnight := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := Tick(context.Background(), st, source, midnight, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.clients[1].UsedDown; got != 100 {
+		t.Fatalf("usage after the reset = %d, want the new cycle to keep the 100 bytes", got)
+	}
+}
+
 func noTraffic(context.Context) (map[string]model.Traffic, error) { return nil, nil }
