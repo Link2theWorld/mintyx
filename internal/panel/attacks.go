@@ -350,16 +350,13 @@ func (s *Server) NewAttackRunner(interval time.Duration) *AttackRunner {
 }
 
 // Tick runs one pass. Pruning and registry lookups are independent of a read or store failure;
-// the cursor is not, and moves only after the hits read ahead of it are safely stored.
+// the cursor is not. It moves in the same transaction as the hits read ahead of it, so a crash
+// or a failed write can neither lose those hits nor replay them into a duplicate.
 func (r *AttackRunner) Tick(ctx context.Context) error {
 	s := r.s
 	cursor, readErr := s.readSSHLog(ctx)
-	storeErr := s.storeAttacks(ctx)
-	var cursorErr error
-	if cursor.save && storeErr == nil {
-		cursorErr = s.st.SetSetting(context.WithoutCancel(ctx), settingAttackCursor, cursor.value)
-	}
-	return errors.Join(readErr, storeErr, cursorErr, s.pruneAttacks(ctx), s.lookUpAttackers(ctx))
+	storeErr := s.storeAttacksWithCursor(ctx, cursor)
+	return errors.Join(readErr, storeErr, s.pruneAttacks(ctx), s.lookUpAttackers(ctx))
 }
 
 func (s *Server) readSSHLog(ctx context.Context) (sshCursorUpdate, error) {
@@ -396,11 +393,19 @@ func (s *Server) readSSHLog(ctx context.Context) (sshCursorUpdate, error) {
 }
 
 func (s *Server) storeAttacks(ctx context.Context) error {
+	return s.storeAttacksWithCursor(ctx, sshCursorUpdate{})
+}
+
+func (s *Server) storeAttacksWithCursor(ctx context.Context, cursor sshCursorUpdate) error {
 	hits, trusted := s.attacks.Drain()
 	// Already drained, so a shutdown must not lose them. A real store failure is different:
 	// put the batch back. SSH lines are not read again thanks to the collector's connection
 	// deduplication, while Xray lines have no journal cursor that could replay them.
-	err := s.st.RecordAttacks(context.WithoutCancel(ctx), hits, trusted, s.now())
+	key, value := "", ""
+	if cursor.save {
+		key, value = settingAttackCursor, cursor.value
+	}
+	err := s.st.RecordAttacksAndSetting(context.WithoutCancel(ctx), hits, trusted, s.now(), key, value)
 	if err != nil {
 		s.attacks.Restore(hits, trusted)
 	}

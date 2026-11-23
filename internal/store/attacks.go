@@ -20,7 +20,18 @@ const visibleAttackers = `trusted = 0 AND hits > 0`
 // with a key: what was recorded about them is dropped, and nothing more is recorded until they
 // are pruned for inactivity. at is the current time.
 func (s *Store) RecordAttacks(ctx context.Context, hits []model.AttackHit, trusted []string, at time.Time) error {
-	if len(hits) == 0 && len(trusted) == 0 {
+	return s.recordAttacks(ctx, hits, trusted, at, "", "")
+}
+
+// RecordAttacksAndSetting is RecordAttacks plus one settings write in the same transaction.
+// The attack journal cursor uses this: it must move exactly when the hits read ahead of it are
+// stored, never earlier and never as a separate commit that a crash can leave behind.
+func (s *Store) RecordAttacksAndSetting(ctx context.Context, hits []model.AttackHit, trusted []string, at time.Time, key, value string) error {
+	return s.recordAttacks(ctx, hits, trusted, at, key, value)
+}
+
+func (s *Store) recordAttacks(ctx context.Context, hits []model.AttackHit, trusted []string, at time.Time, key, value string) error {
+	if len(hits) == 0 && len(trusted) == 0 && key == "" {
 		return nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -84,6 +95,13 @@ func (s *Store) RecordAttacks(ctx context.Context, hits []model.AttackHit, trust
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO attack_daily (day, kind, hits) VALUES (?, ?, ?)
 			 ON CONFLICT (day, kind) DO UPDATE SET hits = hits + excluded.hits`, h.Day, h.Kind, h.Count); err != nil {
+			return err
+		}
+	}
+	if key != "" {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+			key, value); err != nil {
 			return err
 		}
 	}

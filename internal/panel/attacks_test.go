@@ -229,6 +229,41 @@ func TestAFailedStoreNeitherLosesXrayHitsNorCountsSSHHitsTwice(t *testing.T) {
 	}
 }
 
+// Storing the hits and advancing the journal cursor are one atomic outcome: if the cursor
+// write fails after the hits commit, a restart before the retry loses the connection dedupe
+// memory and the replayed journal must not count them again.
+func TestAFailedCursorWriteDoesNotDuplicateStoredHitsAfterARestart(t *testing.T) {
+	a := newAttackFixture(t)
+	sshLine := "Failed password for root from 203.0.113.5 port 40002 ssh2"
+	a.log.queued = []string{sshLine}
+
+	raw, err := sql.Open("sqlite", a.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`CREATE TRIGGER fail_attack_cursor BEFORE INSERT ON settings
+		WHEN NEW.key = 'attack.sshCursor' BEGIN
+		SELECT RAISE(FAIL, 'injected cursor write failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.runner.Tick(context.Background()); err == nil {
+		t.Fatal("tick with a failing cursor write returned nil")
+	}
+	if _, err := raw.Exec(`DROP TRIGGER fail_attack_cursor`); err != nil {
+		t.Fatal(err)
+	}
+
+	// A restart before the retry loses the collector's in-memory connection deduplication.
+	// Since the cursor is still at its old position, the journal hands the line back.
+	a.srv.attacks = attack.NewCollector()
+	a.log.queued = []string{sshLine}
+	a.tick()
+	if s := a.summary(); s.Hits != 1 || s.Sources != 1 {
+		t.Fatalf("summary after the retry = %+v; want the SSH hit exactly once", s)
+	}
+}
+
 func TestAttackLookupsRunOnlyWhenTurnedOn(t *testing.T) {
 	a := newAttackFixture(t)
 	a.log.queued = []string{
