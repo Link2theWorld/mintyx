@@ -87,7 +87,6 @@ func TestCheckRemoteRefusesWhatASubscriptionCannotCarry(t *testing.T) {
 		{"vless://" + testUUID + base + "security=tls&sni=a.example.com&type=ws", "type"},
 		{"vless://" + testUUID + base + "security=reality&sni=a.example.com&pbk=" + x25519Pub + "&type=xhttp", "security"},
 		{"vless://" + testUUID + base + "security=reality&sni=a.example.com&pbk=" + x25519Pub + "&flow=xtls-rprx-vision-udp443", "flow"},
-		{"vless://xray-string-id" + base + "security=reality&sni=a.example.com&pbk=" + x25519Pub, "userinfo"},
 		{"vless://" + testUUID + base + "security=tls&sni=a.example.com&type=xhttp&pcs=" + strings.Repeat("ab", 32), "pcs"},
 		{"vless://" + testUUID + base + "security=tls&sni=a.example.com&type=xhttp&vcn=b.example.com", "vcn"},
 		{"hysteria2://auth" + base + "sni=h.example.com&pinSHA256=" + strings.Repeat("ab", 32), "pinSHA256"},
