@@ -126,12 +126,6 @@ func run() error {
 	eng := app.NewEngine(st, sup, *xrayBin, opt, logger)
 	defer eng.Stop()
 
-	prober := &probe.Prober{}
-	// The panel rejects unknown regions before probing, so an error here only means no suggestion.
-	coverSite := func(ctx context.Context, region string) string {
-		site, _ := prober.CoverSite(ctx, region)
-		return site
-	}
 	srv, err := panel.New(panel.Config{
 		Store:         st,
 		Engine:        eng,
@@ -139,7 +133,7 @@ func run() error {
 		Static:        web.Dist(),
 		TrustProxy:    *trustProxy,
 		ReservedPorts: []int{panelPort, *apiPort},
-		CoverSite:     coverSite,
+		Covers:        &probe.Prober{},
 		Attacks:       attacks,
 		Logger:        logger,
 	})

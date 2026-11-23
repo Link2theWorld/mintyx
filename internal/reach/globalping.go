@@ -102,10 +102,10 @@ type pingOptions struct {
 }
 
 type createRequest struct {
-	Type      string      `json:"type"`
-	Target    string      `json:"target"`
-	Locations any         `json:"locations"`
-	Options   pingOptions `json:"measurementOptions"`
+	Type      string `json:"type"`
+	Target    string `json:"target"`
+	Locations any    `json:"locations"`
+	Options   any    `json:"measurementOptions"`
 }
 
 type measurement struct {
@@ -134,27 +134,8 @@ func (c *Client) Ping(ctx context.Context, req PingRequest) (PingResult, error) 
 		return PingResult{}, err
 	}
 	var m measurement
-	for ctx.Err() == nil {
-		got, err := c.fetch(ctx, id)
-		var throttled *RateLimitError
-		switch {
-		case err == nil:
-			m = got
-		case errors.As(err, &throttled):
-			// Polling has its own per-measurement limit; it clears in seconds, so keep waiting.
-		case ctx.Err() == nil:
-			return PingResult{}, err
-		}
-		if err == nil && m.Status != statusInProgress {
-			break
-		}
-		select {
-		case <-ctx.Done():
-		case <-time.After(c.PollEvery):
-		}
-	}
-	if m.Results == nil {
-		return PingResult{}, fmt.Errorf("globalping: measurement %s gave no results in %s", id, c.Deadline)
+	if err := c.await(ctx, id, &m); err != nil {
+		return PingResult{}, err
 	}
 	out := PingResult{ID: id}
 	for _, r := range m.Results {
@@ -176,24 +157,66 @@ func (c *Client) Ping(ctx context.Context, req PingRequest) (PingResult, error) 
 	return out, nil
 }
 
-func (c *Client) create(ctx context.Context, req PingRequest) (string, error) {
-	body := createRequest{
-		Type:    "ping",
-		Target:  strings.Trim(req.Host, "[]"),
-		Options: pingOptions{Packets: pingPackets},
-	}
-	if req.Port != 0 {
-		body.Options.Protocol, body.Options.Port = "TCP", req.Port
-	}
-	if req.Reuse != "" {
-		body.Locations = req.Reuse
-	} else {
-		locs := []location{{Country: mainland, Limit: ChinaProbes}}
-		for _, cc := range ControlCountries {
-			locs = append(locs, location{Country: cc, Limit: 1})
+// await polls measurement id until it is no longer in progress or ctx ends, and decodes the
+// last answer into into. Probes still running at the end count as no data. It fails only when
+// no answer arrived at all.
+func (c *Client) await(ctx context.Context, id string, into any) error {
+	var last json.RawMessage
+	for ctx.Err() == nil {
+		var got json.RawMessage
+		err := c.do(ctx, http.MethodGet, "/v1/measurements/"+id, nil, http.StatusOK, &got)
+		var throttled *RateLimitError
+		switch {
+		case err == nil:
+			last = got
+		case errors.As(err, &throttled):
+			// Polling has its own per-measurement limit; it clears in seconds, so keep waiting.
+		case ctx.Err() == nil:
+			return err
 		}
-		body.Locations = locs
+		if err == nil {
+			var head struct {
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal(got, &head); err != nil {
+				return fmt.Errorf("globalping: unreadable response: %w", err)
+			}
+			if head.Status != statusInProgress {
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(c.PollEvery):
+		}
 	}
+	if last == nil {
+		return fmt.Errorf("globalping: measurement %s gave no results in %s", id, c.Deadline)
+	}
+	if err := json.Unmarshal(last, into); err != nil {
+		return fmt.Errorf("globalping: unreadable response: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) create(ctx context.Context, req PingRequest) (string, error) {
+	opts := pingOptions{Packets: pingPackets}
+	if req.Port != 0 {
+		opts.Protocol, opts.Port = "TCP", req.Port
+	}
+	var locs any = req.Reuse
+	if req.Reuse == "" {
+		all := []location{{Country: mainland, Limit: ChinaProbes}}
+		for _, cc := range ControlCountries {
+			all = append(all, location{Country: cc, Limit: 1})
+		}
+		locs = all
+	}
+	return c.start(ctx, createRequest{Type: "ping", Target: strings.Trim(req.Host, "[]"), Locations: locs, Options: opts})
+}
+
+// start creates a measurement and returns its id.
+func (c *Client) start(ctx context.Context, body createRequest) (string, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return "", err
@@ -208,11 +231,6 @@ func (c *Client) create(ctx context.Context, req PingRequest) (string, error) {
 		return "", errors.New("globalping: response has no measurement id")
 	}
 	return created.ID, nil
-}
-
-func (c *Client) fetch(ctx context.Context, id string) (measurement, error) {
-	var m measurement
-	return m, c.do(ctx, http.MethodGet, "/v1/measurements/"+id, nil, http.StatusOK, &m)
 }
 
 // do sends one request. A GET whose connection dies before any answer is tried once more: idle

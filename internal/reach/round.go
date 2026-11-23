@@ -11,7 +11,8 @@ import (
 const (
 	// HourlyLimit is Globalping's allowance for callers without a token, in tests per hour.
 	HourlyLimit = 250
-	// ScheduledBudget is the share the background loop may spend, leaving the rest for manual checks.
+	// ScheduledBudget is the share the background loop may spend, leaving the rest for manual
+	// checks and CoverBudget for cover-site checks.
 	ScheduledBudget = 100
 	// MaxMeasurements caps one round so that two rounds back to back still fit in HourlyLimit.
 	MaxMeasurements = 12

@@ -193,6 +193,21 @@ func TestCandidatesListTheRegionBeforeTheFallback(t *testing.T) {
 	}
 }
 
+func TestPickTakesTheFirstCandidateAcceptKeeps(t *testing.T) {
+	list := []string{"a.test", "b.test", "c.test"}
+	var asked []string
+	accept := func(_ context.Context, h string) bool { asked = append(asked, h); return h == "b.test" }
+	if got := pick(context.Background(), list, accept); got != "b.test" || !slices.Equal(asked, []string{"a.test", "b.test"}) {
+		t.Fatalf("pick = %q after asking about %v; want b.test after a and b only", got, asked)
+	}
+	if got := pick(context.Background(), list, nil); got != "a.test" {
+		t.Fatalf("pick without a filter = %q, want the first candidate", got)
+	}
+	if got := pick(context.Background(), list, func(context.Context, string) bool { return false }); got != "" {
+		t.Fatalf("pick with every candidate turned down = %q, want none", got)
+	}
+}
+
 func TestCoverSiteRejectsAnUnknownRegionWithoutProbing(t *testing.T) {
 	check := func(_ context.Context, host string) Result {
 		t.Errorf("probed %s for a region that does not exist", host)

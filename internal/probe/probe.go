@@ -335,6 +335,26 @@ func (p *Prober) CoverSite(ctx context.Context, region string) (string, error) {
 	return list[0], nil
 }
 
+// Pick is CoverSite with a further say: it returns the first site, in CoverSite's order of
+// preference, that accept keeps, or "" when accept turns every usable site down or region is
+// unknown. accept of nil keeps every site.
+func (p *Prober) Pick(ctx context.Context, region string, accept func(context.Context, string) bool) string {
+	list, _ := candidates(ctx, region, p.Check, p.Rand)
+	return pick(ctx, list, accept)
+}
+
+func pick(ctx context.Context, list []string, accept func(context.Context, string) bool) string {
+	for _, site := range list {
+		if accept == nil || accept(ctx, site) {
+			return site
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return ""
+}
+
 // candidates lists every usable site for region in the order CoverSite prefers them: the
 // region's own Shortlist, then the fallback's.
 func candidates(ctx context.Context, region string, check func(context.Context, string) Result, intn func(int) int) ([]string, error) {

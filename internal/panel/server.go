@@ -86,6 +86,12 @@ type Config struct {
 	// CoverSite suggests a REALITY cover site reachable from this server, given the region the admin
 	// says it is in ("" when not said); nil or "" suggests none.
 	CoverSite func(ctx context.Context, region string) string
+	// Covers picks cover sites the way CoverSite does, and takes its place when set: candidates are
+	// then also checked from mainland China while the reachability check is on.
+	Covers CoverPicker
+	// CoverCheck checks a candidate cover site from mainland China; nil uses the Globalping
+	// client when Reach is nil too, and checks nothing otherwise.
+	CoverCheck reach.CoverChecker
 	// HostCheck answers GET /api/host/ssh; nil inspects the real sshd.
 	HostCheck *hostcheck.Checker
 	// Apps installs extra software on this server; nil manages the real host.
@@ -150,6 +156,9 @@ type Server struct {
 	dummyHash []byte
 
 	pinger reach.Pinger
+	// coverCheck asks mainland probes about cover sites; coverMu serialises its cache.
+	coverCheck reach.CoverChecker
+	coverMu    sync.Mutex
 	// reachRunning admits one round at a time, whether the loop or the admin started it.
 	reachRunning atomic.Bool
 
@@ -200,6 +209,18 @@ func New(cfg Config) (*Server, error) {
 	s.lookupGap = attackLookupGap
 	if s.pinger = cfg.Reach; s.pinger == nil {
 		s.pinger = reach.NewClient()
+	}
+	if s.coverCheck = cfg.CoverCheck; s.coverCheck == nil {
+		s.coverCheck = noCoverCheck{}
+		if c, ok := s.pinger.(*reach.Client); ok {
+			s.coverCheck = c
+		}
+	}
+	if cfg.Covers != nil {
+		covers := cfg.Covers
+		s.coverSite = func(ctx context.Context, region string) string {
+			return covers.Pick(ctx, region, s.coverAccept(ctx))
+		}
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
