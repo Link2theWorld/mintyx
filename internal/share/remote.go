@@ -104,6 +104,9 @@ func remoteEndpoint(r model.RemoteLine) (endpoint, error) {
 	if p.Secret == "" {
 		return refuse("userinfo", "the credential is missing")
 	}
+	if p.Protocol == model.ExitVLESS && !vlessUUID(p.Secret) {
+		return refuse("userinfo", "subscription clients need a UUID for VLESS; Xray-only string ids cannot join one")
+	}
 	if p.Port < 1 || p.Port > 65535 {
 		return refuse("port", "%d must be a number from 1 to 65535", p.Port)
 	}
@@ -113,6 +116,29 @@ func remoteEndpoint(r model.RemoteLine) (endpoint, error) {
 	}
 	ep.host, ep.line = host, line
 	return ep, nil
+}
+
+// vlessUUID reports whether secret is in the 8-4-4-4-12 UUID form subscription clients expect.
+// exitlink.Parse canonicalises bare hex and mixed case before the secret reaches this package.
+func vlessUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 // RemoteLink is the share URI a subscription lists for a remote line, rebuilt from its parameters
