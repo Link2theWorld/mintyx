@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -128,11 +129,29 @@ func (s *Server) pointsAtSelf(ctx context.Context, r *http.Request, p model.Exit
 		if host == "" {
 			host = public
 		}
-		if strings.EqualFold(strings.Trim(host, "[]"), strings.Trim(p.Host, "[]")) {
+		if sameDialHost(host, p.Host) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// sameDialHost compares two dial hosts as endpoints, not strings: share-link parsing writes
+// IP literals in canonical form while a line or publicHost keeps the spelling the admin typed.
+func sameDialHost(a, b string) bool {
+	a, b = unbracketHost(a), unbracketHost(b)
+	if ip, err := netip.ParseAddr(a); err == nil {
+		other, err := netip.ParseAddr(b)
+		return err == nil && ip.Unmap() == other.Unmap()
+	}
+	return strings.EqualFold(a, b)
+}
+
+func unbracketHost(h string) string {
+	if strings.HasPrefix(h, "[") && strings.HasSuffix(h, "]") {
+		return h[1 : len(h)-1]
+	}
+	return h
 }
 
 func validRegion(region string) bool { return region == "" || probe.KnownRegion(region) }
