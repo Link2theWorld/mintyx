@@ -145,6 +145,10 @@ func (s *Server) buildLine(d lineDTO, prev *model.Line) (model.Line, error) {
 	if s.reserved[l.Port] {
 		return l, invalid("port", "port is reserved by the panel")
 	}
+	// A line saved on another port before REALITY was pinned to 443 may keep that port.
+	if l.Protocol == model.VLESSReality && l.Port != realityPort && (prev == nil || l.Port != prev.Port) {
+		return l, invalid("port", "REALITY lines listen on port 443")
+	}
 	if l.Host != "" && !validDialHost(l.Host) {
 		return l, invalid("host", "host must be a domain name or IP address")
 	}
@@ -249,9 +253,19 @@ func (s *Server) listLines(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"lines": out})
 }
 
-var preferredPorts = []int{443, 8443, 2053, 2083, 2087, 2096}
+// realityPort is the one port REALITY lines use: a TLS server on any other port stands out,
+// and the cover site it borrows answers on 443 too.
+const realityPort = 443
 
-func (s *Server) suggestPort(ctx context.Context) (int, error) {
+// xhttpPorts are offered to new XHTTP lines first: HTTPS ports that CDNs pass through.
+var xhttpPorts = []int{8443, 2053, 2083, 2087, 2096}
+
+// suggestPort picks the port a new line of protocol p is drafted with. REALITY always gets 443,
+// taken or not: a second REALITY line is refused when it is saved.
+func (s *Server) suggestPort(ctx context.Context, p model.Protocol) (int, error) {
+	if p == model.VLESSReality {
+		return realityPort, nil
+	}
 	lines, err := s.st.ListLines(ctx)
 	if err != nil {
 		return 0, err
@@ -260,20 +274,24 @@ func (s *Server) suggestPort(ctx context.Context) (int, error) {
 	for _, l := range lines {
 		used[l.Port] = true
 	}
-	free := func(p int) bool { return !used[p] && !s.reserved[p] }
-	for _, p := range preferredPorts {
-		if free(p) {
-			return p, nil
+	free := func(port int) bool { return !used[port] && !s.reserved[port] }
+	preferred := []int{realityPort}
+	if p == model.VLESSXHTTP {
+		preferred = xhttpPorts
+	}
+	for _, port := range preferred {
+		if free(port) {
+			return port, nil
 		}
 	}
 	for range 1000 {
-		if p := 10000 + rand.IntN(50000); free(p) {
-			return p, nil
+		if port := 10000 + rand.IntN(50000); free(port) {
+			return port, nil
 		}
 	}
-	for p := 1024; p <= 65535; p++ {
-		if free(p) {
-			return p, nil
+	for port := 1024; port <= 65535; port++ {
+		if free(port) {
+			return port, nil
 		}
 	}
 	return 0, invalid("port", "no free port left")
@@ -310,7 +328,7 @@ func (s *Server) draftLine(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Region = region
 	}
-	port, err := s.suggestPort(r.Context())
+	port, err := s.suggestPort(r.Context(), in.Protocol)
 	if err != nil {
 		s.writeFail(w, err)
 		return
@@ -349,6 +367,13 @@ func (s *Server) createLine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.WithoutCancel(r.Context())
+	if err := s.claimRealityPort(r, l); err != nil {
+		if derr := s.st.DeleteLine(ctx, l.ID); derr != nil {
+			s.log.Error("panel: undo line create", "line", l.ID, "err", derr)
+		}
+		s.writeFail(w, err)
+		return
+	}
 	syncErr := s.syncLocked(ctx)
 	if errors.Is(syncErr, ErrConfigRejected) {
 		undone, err := s.undoRefused(ctx, wasRefused,
@@ -394,6 +419,13 @@ func (s *Server) updateLine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.WithoutCancel(r.Context())
+	if err := s.claimRealityPort(r, l); err != nil {
+		if uerr := s.st.UpdateLine(ctx, &prev); uerr != nil {
+			s.log.Error("panel: undo line update", "line", l.ID, "err", uerr)
+		}
+		s.writeFail(w, err)
+		return
+	}
 	syncErr := s.syncLocked(ctx)
 	if errors.Is(syncErr, ErrConfigRejected) {
 		// E.g. enabling a line wired to an exit Xray cannot use: put the line back as it was.
@@ -430,4 +462,33 @@ func (s *Server) deleteLine(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "line.delete", prev.Name, "")
 	s.applyAndRespond(w, r, http.StatusNoContent, nil)
+}
+
+// claimRealityPort makes room on 443/tcp for an enabled REALITY line: whatever else listens there,
+// other than the panel and its Xray, is stopped, and what was stopped goes into the audit log.
+// It runs once the line is saved and before Xray is given it, so a change rejected as invalid
+// stops nothing. An error means 443 is still taken; Xray could then start none of the lines,
+// so the caller takes the change back.
+func (s *Server) claimRealityPort(r *http.Request, l model.Line) error {
+	if l.Protocol != model.VLESSReality || !l.Enabled || l.Port != realityPort {
+		return nil
+	}
+	ctx := context.WithoutCancel(r.Context())
+	var keep []int
+	if pid := s.eng.Status(ctx).PID; pid > 0 {
+		keep = append(keep, pid)
+	}
+	stopped, err := s.ports.FreeTCP(ctx, realityPort, keep)
+	if len(stopped) > 0 {
+		names := make([]string, len(stopped))
+		for i, x := range stopped {
+			names[i] = x.String()
+		}
+		s.audit(r, "port.free", "443/tcp", strings.Join(names, ", "))
+	}
+	if err != nil {
+		s.log.Warn("panel: could not free 443/tcp for a REALITY line", "line", l.Name, "err", err)
+		return conflict("port", "port 443/tcp is in use and the panel could not free it: "+err.Error())
+	}
+	return nil
 }

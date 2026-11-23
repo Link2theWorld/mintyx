@@ -3,8 +3,12 @@ package panel
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Link2theWorld/mintyx/internal/hostport"
+	"github.com/Link2theWorld/mintyx/internal/model"
 )
 
 func TestValidHostnameShape(t *testing.T) {
@@ -101,6 +105,112 @@ func TestLineDuplicatePortConflict(t *testing.T) {
 	expectStatus(t, f.do("POST", "/api/lines", realityLine("a", 443), withCookie(c)), http.StatusCreated)
 	w := f.do("POST", "/api/lines", realityLine("b", 443), withCookie(c))
 	expectError(t, w, http.StatusConflict, codeConflict, "port")
+	expectStatus(t, f.do("POST", "/api/lines", xhttpLine("c", 8443), withCookie(c)), http.StatusCreated)
+	expectError(t, f.do("POST", "/api/lines", xhttpLine("d", 8443), withCookie(c)), http.StatusConflict, codeConflict, "port")
+}
+
+func TestRealityLineIsOn443(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	expectError(t, f.do("POST", "/api/lines", realityLine("a", 8443), withCookie(c)), http.StatusBadRequest, codeInvalid, "port")
+	created := decodeBody[lineDTO](t, f.do("POST", "/api/lines", realityLine("a", 443), withCookie(c)))
+	if created.Port != 443 {
+		t.Fatalf("created port = %d", created.Port)
+	}
+	body := realityLine("a", 2053)
+	body["reality"].(map[string]any)["publicKey"] = created.Reality.PublicKey
+	expectError(t, f.do("PUT", "/api/lines/"+itoa(created.ID), body, withCookie(c)), http.StatusBadRequest, codeInvalid, "port")
+
+	// A line saved on another port before REALITY was pinned to 443 keeps working and may move to 443.
+	old := model.Line{Name: "old", Protocol: model.VLESSReality, Port: 8443, Enabled: true,
+		Reality: &model.RealityParams{PrivateKey: "K", PublicKey: "P", ShortID: "ab", ServerName: "www.example.com", Target: "www.example.com:443"}}
+	if err := f.st.CreateLine(t.Context(), &old); err != nil {
+		t.Fatal(err)
+	}
+	body = realityLine("old renamed", 8443)
+	body["reality"].(map[string]any)["publicKey"] = "P"
+	expectStatus(t, f.do("PUT", "/api/lines/"+itoa(old.ID), body, withCookie(c)), http.StatusOK)
+	body["port"] = 9443
+	expectError(t, f.do("PUT", "/api/lines/"+itoa(old.ID), body, withCookie(c)), http.StatusBadRequest, codeInvalid, "port")
+}
+
+func TestRealityLineFreesPort443(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	f.ports.stopped = []hostport.Stopped{{Unit: "nginx.service", Name: "nginx"}, {PID: 812, Name: "python3"}}
+
+	syncs := f.eng.syncCount()
+	w := f.do("POST", "/api/lines", realityLine("tokyo", 443), withCookie(c))
+	expectStatus(t, w, http.StatusCreated)
+	calls := f.ports.callsMade()
+	if len(calls) != 1 || calls[0].port != 443 {
+		t.Fatalf("FreeTCP calls = %+v, want one for 443", calls)
+	}
+	// The panel's own Xray (pid 42 in the fake engine) is never stopped, and the port is
+	// freed before Xray is given the new line, so it can bind.
+	if !slices.Equal(calls[0].keep, []int{42}) || calls[0].syncs != syncs {
+		t.Fatalf("FreeTCP call = %+v, want keep [42] before the sync", calls[0])
+	}
+	if f.eng.syncCount() != syncs+1 {
+		t.Fatalf("syncs = %d, want one after freeing the port", f.eng.syncCount()-syncs)
+	}
+	e, _ := f.st.ListAudit(t.Context(), 2, 0)
+	if e[1].Action != "port.free" || e[1].Target != "443/tcp" || e[1].Detail != "nginx.service, python3 (pid 812)" {
+		t.Fatalf("audit = %+v, want what was stopped on 443/tcp", e[1])
+	}
+	if e[0].Action != "line.create" {
+		t.Fatalf("latest audit = %+v, want the line", e[0])
+	}
+
+	// Nothing to free for another protocol or a disabled REALITY line.
+	first := decodeBody[lineDTO](t, w)
+	expectStatus(t, f.do("POST", "/api/lines", xhttpLine("cdn", 8443), withCookie(c)), http.StatusCreated)
+	expectStatus(t, f.do("DELETE", "/api/lines/"+itoa(first.ID), nil, withCookie(c)), http.StatusNoContent)
+	body := realityLine("later", 443)
+	body["enabled"] = false
+	later := decodeBody[lineDTO](t, f.do("POST", "/api/lines", body, withCookie(c)))
+	if n := len(f.ports.callsMade()); n != 1 {
+		t.Fatalf("FreeTCP calls = %d, want none for an XHTTP or a disabled REALITY line", n)
+	}
+	// Switching it on is when 443 is needed.
+	body["enabled"] = true
+	body["reality"].(map[string]any)["publicKey"] = later.Reality.PublicKey
+	expectStatus(t, f.do("PUT", "/api/lines/"+itoa(later.ID), body, withCookie(c)), http.StatusOK)
+	if n := len(f.ports.callsMade()); n != 2 {
+		t.Fatalf("FreeTCP calls = %d, want one more when the line is switched on", n)
+	}
+}
+
+func TestRealityLineRefusedWhen443CannotBeFreed(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	f.ports.err = &hostport.RefusedError{Port: 443, Holder: hostport.Process{PID: 700, Name: "sshd", Unit: "ssh.service"}, Reason: "stopping SSH would lock you out of the server"}
+
+	syncs := f.eng.syncCount()
+	w := f.do("POST", "/api/lines", realityLine("tokyo", 443), withCookie(c))
+	expectError(t, w, http.StatusConflict, codeConflict, "port")
+	if !strings.Contains(w.Body.String(), "ssh.service") {
+		t.Fatalf("error does not name the holder: %s", w.Body)
+	}
+	if lines, _ := f.st.ListLines(t.Context()); len(lines) != 0 {
+		t.Fatalf("a line whose port is held was kept: %+v", lines)
+	}
+	if f.eng.syncCount() != syncs {
+		t.Fatal("a line whose port is held was given to Xray")
+	}
+
+	// Switching an existing line on is taken back the same way.
+	f.ports.err = nil
+	body := realityLine("tokyo", 443)
+	body["enabled"] = false
+	created := decodeBody[lineDTO](t, f.do("POST", "/api/lines", body, withCookie(c)))
+	f.ports.err = hostport.ErrStillHeld
+	body["enabled"] = true
+	body["reality"].(map[string]any)["publicKey"] = created.Reality.PublicKey
+	expectError(t, f.do("PUT", "/api/lines/"+itoa(created.ID), body, withCookie(c)), http.StatusConflict, codeConflict, "port")
+	if l, _ := f.st.GetLine(t.Context(), created.ID); l.Enabled {
+		t.Fatal("the line stayed on although 443 is still held")
+	}
 }
 
 func TestRealityPrivateKeyHiddenAndPreserved(t *testing.T) {
@@ -174,10 +284,39 @@ func TestLineUpdateKeepsEnabledWhenOmitted(t *testing.T) {
 	}
 }
 
+func TestLineDraftSuggestsPortByProtocol(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	draftPort := func(protocol string) float64 {
+		t.Helper()
+		w := f.do("POST", "/api/lines/draft", map[string]string{"protocol": protocol}, withCookie(c))
+		expectStatus(t, w, http.StatusOK)
+		return decodeBody[map[string]any](t, w)["port"].(float64)
+	}
+	if p := draftPort("vless-reality"); p != 443 {
+		t.Fatalf("REALITY draft port = %v, want 443", p)
+	}
+	// XHTTP never gets 443, which belongs to REALITY; it walks the CDN-friendly ports instead.
+	if p := draftPort("vless-xhttp"); p != 8443 {
+		t.Fatalf("first XHTTP draft port = %v, want 8443", p)
+	}
+	expectStatus(t, f.do("POST", "/api/lines", xhttpLine("cdn", 8443), withCookie(c)), http.StatusCreated)
+	if p := draftPort("vless-xhttp"); p != 2053 {
+		t.Fatalf("second XHTTP draft port = %v, want 2053", p)
+	}
+	expectStatus(t, f.do("POST", "/api/lines", realityLine("a", 443), withCookie(c)), http.StatusCreated)
+	// Even with 443 taken, REALITY is drafted on 443; saving a second one is what fails.
+	if p := draftPort("vless-reality"); p != 443 {
+		t.Fatalf("REALITY draft port with 443 taken = %v, want 443", p)
+	}
+	if p := draftPort("hysteria2"); p == 443 || p == 8443 || p == 2053 || p == 2083 || p == 2087 || p == 2096 {
+		t.Fatalf("Hysteria2 draft port = %v, want neither a taken port nor one kept for XHTTP", p)
+	}
+}
+
 func TestLineDraftSuggestsFreePort(t *testing.T) {
 	f := newFixture(t, nil)
 	c := f.setup()
-	expectStatus(t, f.do("POST", "/api/lines", realityLine("a", 443), withCookie(c)), http.StatusCreated)
 
 	w := f.do("POST", "/api/lines/draft", map[string]string{"protocol": "vless-reality"}, withCookie(c))
 	expectStatus(t, w, http.StatusOK)
@@ -185,8 +324,8 @@ func TestLineDraftSuggestsFreePort(t *testing.T) {
 	if _, has := d["id"]; has {
 		t.Fatalf("draft has an id: %s", w.Body)
 	}
-	if d["port"] != float64(8443) {
-		t.Fatalf("draft port = %v, want 8443 (443 is taken)", d["port"])
+	if d["port"] != float64(443) {
+		t.Fatalf("draft port = %v, want 443", d["port"])
 	}
 	r := d["reality"].(map[string]any)
 	if r["publicKey"] != "" || r["shortId"] == "" {

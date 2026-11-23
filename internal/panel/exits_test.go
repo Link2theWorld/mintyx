@@ -445,7 +445,7 @@ func TestEnablingALineXrayRefusesIsRolledBack(t *testing.T) {
 	if l, _ := f.st.GetLine(t.Context(), line.ID); l.Enabled || l.ExitID != a.ID {
 		t.Fatalf("after a refused enable: enabled %v, exit %d; want still off and still wired", l.Enabled, l.ExitID)
 	}
-	w = f.do("POST", "/api/lines", realityLine("new", 8443), withCookie(c))
+	w = f.do("POST", "/api/lines", xhttpLine("new", 8443), withCookie(c))
 	expectError(t, w, http.StatusBadRequest, codeInvalid, "line")
 	if lines, _ := f.st.ListLines(t.Context()); len(lines) != 1 {
 		t.Fatalf("a refused new line was kept: %d lines", len(lines))
@@ -467,7 +467,7 @@ func TestRefusedStoreStillTakesTheFix(t *testing.T) {
 	f := newFixture(t, nil)
 	c := f.setup()
 	broken := f.createLineAt(c, "broken", 443)
-	other := f.createLineAt(c, "other", 8443)
+	other := decodeBody[lineDTO](t, f.do("POST", "/api/lines", xhttpLine("other", 8443), withCookie(c)))
 	a := f.createExit(c, "A", ssLink)
 	f.eng.refuseWhen(func(ctx context.Context) (string, bool) {
 		l, _ := f.st.GetLine(ctx, broken.ID)
@@ -476,7 +476,7 @@ func TestRefusedStoreStillTakesTheFix(t *testing.T) {
 
 	// Xray still runs the old config and the panel has not synced since the certificate went:
 	// it finds out by asking Xray about the old state, which Sync alone would not re-check.
-	w := f.do("PUT", fmt.Sprintf("/api/lines/%d", other.ID), realityLine("other", 8444), withCookie(c))
+	w := f.do("PUT", fmt.Sprintf("/api/lines/%d", other.ID), xhttpLine("other", 8444), withCookie(c))
 	expectError(t, w, http.StatusBadGateway, codeEngine, "")
 	if l, _ := f.st.GetLine(t.Context(), other.ID); l.Port != 8444 {
 		t.Fatalf("a change made while the store was refused anyway was undone: port %d", l.Port)
@@ -491,7 +491,7 @@ func TestRefusedStoreStillTakesTheFix(t *testing.T) {
 	if s, c := f.eng.syncCount()-syncs, f.eng.checkCount()-checks; s != 1 || c != 0 {
 		t.Fatalf("a change on a store known to be refused synced %d and checked %d times, want 1 and 0", s, c)
 	}
-	w = f.do("POST", "/api/lines", realityLine("third", 9443), withCookie(c))
+	w = f.do("POST", "/api/lines", xhttpLine("third", 9443), withCookie(c))
 	expectError(t, w, http.StatusBadGateway, codeEngine, "")
 
 	// Switching the broken line off is the way out, and it works.

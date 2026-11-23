@@ -53,9 +53,20 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/lines` | `{"lines": [Line]}` |
-| POST | `/api/lines/draft` | 请求 `{"protocol","region"}`，返回一个未保存、已填好默认值的 Line（含未被占用的建议端口，无 `id`）。REALITY 的 `publicKey` 留空，密钥对在保存时生成。`region` 可省略，是服务器所在地区：`jp` `kr` `hk` `tw` `sg` `us` `eu` `other`，REALITY 的 `serverName`/`target` 取该地区候选站点里从服务器握手最快的一个，当地都不可用时退回全球站点；省略时用设置里的 `serverRegion`，那也没有时按美西高校站点挑选；一个可用站点都没有时两项留空。未知地区 400 `invalid`，`field` 为 `region` |
+| POST | `/api/lines/draft` | 请求 `{"protocol","region"}`，返回一个未保存、已填好默认值的 Line（含建议端口，无 `id`）。端口：REALITY 固定为 443，即使 443 已被别的线路占用（保存时才 409）；XHTTP 取 8443、2053、2083、2087、2096 里第一个空闲的；Hysteria2 取 443；都被占用时取随机高位端口。REALITY 的 `publicKey` 留空，密钥对在保存时生成。`region` 可省略，是服务器所在地区：`jp` `kr` `hk` `tw` `sg` `us` `eu` `other`，REALITY 的 `serverName`/`target` 取该地区候选站点里从服务器握手最快的一个，当地都不可用时退回全球站点；省略时用设置里的 `serverRegion`，那也没有时按美西高校站点挑选；一个可用站点都没有时两项留空。未知地区 400 `invalid`，`field` 为 `region` |
 | POST | `/api/lines` | 请求为 Line（无 `id`）。REALITY 省略 `publicKey` 时后端生成一对密钥 |
 | PUT | `/api/lines/{id}` | 整体更新。不能改 `protocol` |
+
+线路端口的规则：
+- 两条线路不能用同一个端口，否则 409 `conflict`，`field` 为 `port`。
+- REALITY 线路的端口必须是 443，否则 400 `invalid`，`field` 为 `port`。之前已存在别的端口上的
+  REALITY 线路，更新时可以保留原端口，或改到 443。一台服务器因此只有一条 REALITY 线路（443 上）。
+- 保存后处于启用状态、端口为 443 的 REALITY 线路，在交给 Xray 之前先腾出 443/tcp：除面板自己
+  和它的 Xray 以外，监听 443/tcp 的程序都会被停掉。属于 systemd 系统服务的执行
+  `systemctl disable --now`（停止并取消开机自启），其他进程先发 SIGTERM，几秒内不退出再发 SIGKILL。
+  停了什么记一条审计 `port.free`（对象 `443/tcp`，详情列出服务名或「进程名 (pid N)」）。
+- 443/tcp 腾不出来时（占用者是 sshd 或 systemd 自己监听的套接字单元、看不到占用者、停止失败或
+  停了仍被占用）不保存这次改动，返回 409 `conflict`，`field` 为 `port`，`message` 说明原因。
 | DELETE | `/api/lines/{id}` | 204 |
 
 ## 访客

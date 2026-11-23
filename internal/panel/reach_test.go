@@ -737,10 +737,12 @@ func TestReachStatusDropsVerdictWhenLineMoves(t *testing.T) {
 	if got := f.status().Targets[0]; got.Verdict != reach.OK {
 		t.Fatalf("setup: verdict %q", got.Verdict)
 	}
-	expectStatus(t, f.do("PUT", "/api/lines/1", realityLine("tokyo", 8443), withCookie(f.c)), http.StatusOK)
+	moved := realityLine("tokyo", 443)
+	moved["host"] = "other.example.com"
+	expectStatus(t, f.do("PUT", "/api/lines/1", moved, withCookie(f.c)), http.StatusOK)
 	got := f.status().Targets[0]
-	want := reachTargetDTO{LineID: 1, LineName: "tokyo", Protocol: "vless-reality", Host: "vpn.example.com", Port: 8443, Verdict: reach.Unknown}
+	want := reachTargetDTO{LineID: 1, LineName: "tokyo", Protocol: "vless-reality", Host: "other.example.com", Port: 443, Verdict: reach.Unknown}
 	if got != want {
-		t.Errorf("after moving the line to another port: %+v\nwant an untested line: %+v", got, want)
+		t.Errorf("after moving the line to another address: %+v\nwant an untested line: %+v", got, want)
 	}
 }

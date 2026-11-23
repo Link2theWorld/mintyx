@@ -103,10 +103,20 @@ const coverSites: Record<string, string> = {
   sg: "www.ntu.edu.sg", us: "www.berkeley.edu", eu: "www.cam.ac.uk", other: "www.nvidia.com",
 };
 
-function draft(protocol: string, site: string): Json {
+// Like the panel: REALITY is always drafted on 443; XHTTP tries the CDN-friendly ports, Hysteria2 tries 443.
+function draftPort(protocol: string): number {
+  if (protocol === "vless-reality") return 443;
   const used = new Set(state.lines.map((l) => l.port));
+  const preferred = protocol === "vless-xhttp" ? [8443, 2053, 2083, 2087, 2096] : [443];
+  const free = preferred.find((p) => !used.has(p));
+  if (free !== undefined) return free;
   let port = 20000;
   while (used.has(port)) port++;
+  return port;
+}
+
+function draft(protocol: string, site: string): Json {
+  const port = draftPort(protocol);
   const base = { name: "", protocol, port, enabled: true, host: "" };
   if (protocol === "vless-xhttp") return { ...base, xhttp: { path: "/x" + Math.random().toString(16).slice(2, 8), domain: "", security: "tls", certFile: "", keyFile: "" } };
   if (protocol === "hysteria2") return { ...base, hysteria2: { domain: "", certFile: "", keyFile: "", obfsPassword: "" } };
@@ -173,6 +183,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
   if (path === "/api/lines" && method === "POST") {
     const b = await readBody(req);
+    if (b.protocol === "vless-reality" && b.port !== 443) return fail(res, 400, "invalid", "REALITY lines listen on port 443", "port");
     if (state.lines.some((l) => l.port === b.port)) return fail(res, 409, "conflict", "port already used", "port");
     // exitId is read-only (API.md): a new line leaves directly until PUT /api/routing says otherwise.
     state.lines.push({ ...b, id: state.nextId++, exitId: null, createdAt: new Date().toISOString() });
@@ -185,6 +196,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (i < 0) return fail(res, 404, "not_found", "no such line");
     if (method === "DELETE") { state.lines.splice(i, 1); return send(res, 204); }
     const b = await readBody(req);
+    if (b.protocol === "vless-reality" && b.port !== 443 && b.port !== state.lines[i]?.port) return fail(res, 400, "invalid", "REALITY lines listen on port 443", "port");
     if (state.lines.some((l) => l.port === b.port && l.id !== id)) return fail(res, 409, "conflict", "port already used", "port");
     state.lines[i] = { ...state.lines[i], ...b, exitId: state.lines[i]?.exitId ?? null };
     return send(res, 200, state.lines[i]);

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Link2theWorld/mintyx/internal/hostapps"
+	"github.com/Link2theWorld/mintyx/internal/hostport"
 	"github.com/Link2theWorld/mintyx/internal/store"
 )
 
@@ -146,11 +147,42 @@ func (k *fakeKeys) NewRealityKeyPair() (string, string, error) {
 func (k *fakeKeys) NewShortID() string  { return fmt.Sprintf("%016x", k.next()) }
 func (k *fakeKeys) NewPassword() string { return fmt.Sprintf("pw%d", k.next()) }
 
+// fakePorts stands in for the host's 443/tcp: what it "stops" and whether it fails are set by the test.
+type fakePorts struct {
+	mu      sync.Mutex
+	eng     *fakeEngine
+	stopped []hostport.Stopped
+	err     error
+	calls   []portsCall
+}
+
+type portsCall struct {
+	port int
+	keep []int
+	// syncs is how many times the engine had synced when the port was freed.
+	syncs int
+}
+
+func (p *fakePorts) FreeTCP(_ context.Context, port int, keep []int) ([]hostport.Stopped, error) {
+	syncs := p.eng.syncCount()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls = append(p.calls, portsCall{port: port, keep: append([]int(nil), keep...), syncs: syncs})
+	return p.stopped, p.err
+}
+
+func (p *fakePorts) callsMade() []portsCall {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]portsCall(nil), p.calls...)
+}
+
 type fixture struct {
 	t     *testing.T
 	srv   *Server
 	st    *store.Store
 	eng   *fakeEngine
+	ports *fakePorts
 	clock *time.Time
 }
 
@@ -173,9 +205,11 @@ func newFixture(t *testing.T, mod func(*Config)) *fixture {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	eng := &fakeEngine{st: st}
+	ports := &fakePorts{eng: eng}
 	cfg := Config{Store: st, Engine: eng, Keys: &fakeKeys{}, Static: testStatic, ReservedPorts: []int{2096},
-		// No test may reach the real package manager.
-		Apps: hostapps.New(hostapps.Options{Unsupported: func() string { return hostapps.ReasonOS }}),
+		// No test may reach the real package manager, nor stop anything on the real host.
+		Apps:  hostapps.New(hostapps.Options{Unsupported: func() string { return hostapps.ReasonOS }}),
+		Ports: ports,
 		CoverSite: func(_ context.Context, region string) string {
 			if region == "" {
 				return "www.campus.example"
@@ -191,7 +225,7 @@ func newFixture(t *testing.T, mod func(*Config)) *fixture {
 	}
 	srv.bcryptCost = bcrypt.MinCost
 	clock := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	f := &fixture{t: t, srv: srv, st: st, eng: eng, clock: &clock}
+	f := &fixture{t: t, srv: srv, st: st, eng: eng, ports: ports, clock: &clock}
 	srv.now = func() time.Time { return *f.clock }
 	return f
 }
@@ -280,6 +314,13 @@ func realityLine(name string, port int) map[string]any {
 	return map[string]any{
 		"name": name, "protocol": "vless-reality", "port": port, "enabled": true,
 		"reality": map[string]any{"shortId": "abcd", "serverName": "www.example.com", "target": "www.example.com:443"},
+	}
+}
+
+func xhttpLine(name string, port int) map[string]any {
+	return map[string]any{
+		"name": name, "protocol": "vless-xhttp", "port": port, "enabled": true,
+		"xhttp": map[string]any{"path": "/p", "domain": "cdn.example.com", "security": "none"},
 	}
 }
 

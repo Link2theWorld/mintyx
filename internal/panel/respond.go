@@ -52,13 +52,25 @@ func (e *fieldError) Error() string { return e.field + ": " + e.msg }
 
 func invalid(field, msg string) error { return &fieldError{field, msg} }
 
+// conflictError is reported as 409 conflict with field set and its own message.
+type conflictError struct {
+	field, msg string
+}
+
+func (e *conflictError) Error() string { return e.field + ": " + e.msg }
+
+func conflict(field, msg string) error { return &conflictError{field, msg} }
+
 // writeFail maps validation and store errors to API errors; anything else is a logged 500.
 func (s *Server) writeFail(w http.ResponseWriter, err error) {
 	var fe *fieldError
+	var pc *conflictError
 	var ce *store.ConflictError
 	switch {
 	case errors.As(err, &fe):
 		writeErr(w, http.StatusBadRequest, codeInvalid, fe.msg, fe.field)
+	case errors.As(err, &pc):
+		writeErr(w, http.StatusConflict, codeConflict, pc.msg, pc.field)
 	case errors.As(err, &ce):
 		field := ce.Field
 		if field == "sub_token" {

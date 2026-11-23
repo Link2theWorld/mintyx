@@ -22,6 +22,7 @@ import (
 
 	"github.com/Link2theWorld/mintyx/internal/app"
 	"github.com/Link2theWorld/mintyx/internal/deploy/sshtest"
+	"github.com/Link2theWorld/mintyx/internal/hostport"
 	"github.com/Link2theWorld/mintyx/internal/panel"
 	"github.com/Link2theWorld/mintyx/internal/store"
 )
@@ -104,6 +105,8 @@ func New(t testing.TB) *VPS {
 	v.st = st
 	srv, err := panel.New(panel.Config{
 		Store: st, Engine: idleEngine{}, Keys: app.Keys{}, ReservedPorts: []int{8088, 10085},
+		// The fake server's 443 is free; nothing on the machine running the tests may be stopped.
+		Ports: freePorts{},
 		CoverSite: func(context.Context, string) string {
 			v.mu.Lock()
 			defer v.mu.Unlock()
@@ -139,6 +142,10 @@ func (idleEngine) Status(context.Context) panel.EngineStatus {
 	return panel.EngineStatus{Running: true, BinaryFound: true}
 }
 func (idleEngine) Logs() []string { return nil }
+
+type freePorts struct{}
+
+func (freePorts) FreeTCP(context.Context, int, []int) ([]hostport.Stopped, error) { return nil, nil }
 
 // Set changes knobs under the lock, for tests that flip behaviour while connected.
 func (v *VPS) Set(change func(*VPS)) {

@@ -169,7 +169,7 @@ export function LineForm({ mode, initial, onProtocolChange, region = "", onRegio
       <Form.Item
         name="port"
         label={t("lineForm.port")}
-        extra={<Help k="lineForm.portHelp" />}
+        extra={<Help k={protocol === "vless-reality" ? "lineForm.portHelpReality" : "lineForm.portHelp"} />}
         rules={[{ required: true, message: t("auth.required") }]}
       >
         <InputNumber min={1} max={65535} precision={0} style={{ width: "100%" }} />

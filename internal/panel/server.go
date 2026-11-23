@@ -22,6 +22,7 @@ import (
 	"github.com/Link2theWorld/mintyx/internal/attack"
 	"github.com/Link2theWorld/mintyx/internal/hostapps"
 	"github.com/Link2theWorld/mintyx/internal/hostcheck"
+	"github.com/Link2theWorld/mintyx/internal/hostport"
 	"github.com/Link2theWorld/mintyx/internal/probe"
 	"github.com/Link2theWorld/mintyx/internal/rdap"
 	"github.com/Link2theWorld/mintyx/internal/reach"
@@ -57,6 +58,13 @@ type EngineStatus struct {
 	BinaryFound bool
 }
 
+// PortFreer stops the other programs listening on a TCP port a line needs. keep lists processes
+// to leave alone (the panel's Xray); the panel itself is always left alone. It returns what it
+// stopped, also when it fails part way.
+type PortFreer interface {
+	FreeTCP(ctx context.Context, port int, keep []int) ([]hostport.Stopped, error)
+}
+
 // KeyGen produces the random credentials new lines and clients need.
 type KeyGen interface {
 	NewUUID() string
@@ -82,6 +90,8 @@ type Config struct {
 	HostCheck *hostcheck.Checker
 	// Apps installs extra software on this server; nil manages the real host.
 	Apps *hostapps.Manager
+	// Ports makes room on 443/tcp for a REALITY line; nil stops programs on the real host.
+	Ports PortFreer
 	// Reach runs the from-China reachability measurements; nil uses the public Globalping API.
 	Reach reach.Pinger
 	// ExitRTT measures the TCP handshake time to an exit; nil uses probe.ConnectTime.
@@ -117,6 +127,7 @@ type Server struct {
 	coverSite  func(context.Context, string) string
 	hostCheck  *hostcheck.Checker
 	apps       *hostapps.Manager
+	ports      PortFreer
 	log        *slog.Logger
 	mux        *http.ServeMux
 	startedAt  time.Time
@@ -170,6 +181,7 @@ func New(cfg Config) (*Server, error) {
 		coverSite:  cfg.CoverSite,
 		hostCheck:  cfg.HostCheck,
 		apps:       cfg.Apps,
+		ports:      cfg.Ports,
 		log:        cfg.Logger,
 		now:        func() time.Time { return time.Now().UTC() },
 		bcryptCost: bcrypt.DefaultCost,
@@ -197,6 +209,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if s.apps == nil {
 		s.apps = hostapps.New(hostapps.Options{})
+	}
+	if s.ports == nil {
+		s.ports = hostport.New(hostport.Options{})
 	}
 	if s.exitRTT = cfg.ExitRTT; s.exitRTT == nil {
 		s.exitRTT = func(ctx context.Context, host string, port int) (time.Duration, error) {
