@@ -29,6 +29,13 @@ func (r *Runner) Tick(ctx context.Context) error {
 	s := r.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Finish storing the prior batch before starting a new cycle or draining Xray again.
+	if len(s.unstoredTraffic) != 0 {
+		if err := s.st.AddTraffic(ctx, s.unstoredTraffic); err != nil {
+			return err
+		}
+		s.unstoredTraffic = nil
+	}
 	loc, locErr := s.location(ctx)
 	if locErr != nil {
 		// Reading monthly days in a fallback zone could reset usage a second time; wait for
@@ -36,6 +43,7 @@ func (r *Runner) Tick(ctx context.Context) error {
 		loc = nil
 	}
 	res, tickErr := quota.Tick(ctx, s.st, r.src, s.now(), loc)
+	s.unstoredTraffic = res.UnstoredTraffic
 	for _, c := range res.CycleResets {
 		s.auditSystem(ctx, "client.cycle-reset", c.Name, "")
 	}

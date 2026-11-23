@@ -63,6 +63,8 @@ type Result struct {
 	Changed bool
 	// CycleResets are the clients whose monthly usage went back to zero, as they were before.
 	CycleResets []model.Client
+	// UnstoredTraffic is the batch to retry if AddTraffic failed.
+	UnstoredTraffic map[int64]model.Traffic
 }
 
 // Tick starts due monthly cycles, then records new traffic and reconciles blocks. One batch
@@ -99,6 +101,7 @@ func Tick(ctx context.Context, st Store, source TrafficSource, now time.Time, lo
 	traffic, sourceErr := source(ctx)
 	if add := ByClientID(traffic); len(add) > 0 {
 		if err := st.AddTraffic(ctx, add); err != nil {
+			res.UnstoredTraffic = add
 			return res, err
 		}
 		refresh = true

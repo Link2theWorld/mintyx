@@ -238,6 +238,7 @@ func (s *Server) resetClientTraffic(w http.ResponseWriter, r *http.Request) {
 		if err := s.st.ResetTraffic(ctx, c.ID); err != nil {
 			return err
 		}
+		delete(s.unstoredTraffic, c.ID)
 		_, err := s.reconcile(ctx, c.ID)
 		return err
 	})(w, r)
