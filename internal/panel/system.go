@@ -297,7 +297,7 @@ func (s *Server) reanchorCycles(ctx context.Context, loc *time.Location) error {
 		}
 		start := quota.CycleStart(c.QuotaResetDay, now, loc)
 		c.CycleStart = &start
-		if err := s.st.UpdateClientWithCycle(ctx, &c); err != nil {
+		if err := s.st.UpdateClient(ctx, &c); err != nil {
 			return err
 		}
 	}

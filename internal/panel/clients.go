@@ -44,10 +44,9 @@ type clientInput struct {
 
 // setResetDay changes a client's monthly reset day. A new or changed day starts its cycle at
 // the current period without touching usage: the admin is choosing a calendar, not resetting.
-// It reports whether the cycle anchor changed and must be written deliberately.
-func (s *Server) setResetDay(c *model.Client, day int, loc *time.Location) bool {
+func (s *Server) setResetDay(c *model.Client, day int, loc *time.Location) {
 	if day == c.QuotaResetDay && (day == 0 || c.CycleStart != nil) {
-		return false
+		return
 	}
 	c.QuotaResetDay = day
 	c.CycleStart = nil
@@ -55,7 +54,6 @@ func (s *Server) setResetDay(c *model.Client, day int, loc *time.Location) bool 
 		start := quota.CycleStart(day, s.now(), loc).UTC()
 		c.CycleStart = &start
 	}
-	return true
 }
 
 func (in *clientInput) validate() error {
@@ -163,12 +161,8 @@ func (s *Server) updateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.Name, c.QuotaBytes, c.ExpiresAt = in.Name, in.QuotaBytes, in.ExpiresAt
-	if s.setResetDay(&c, in.QuotaResetDay, loc) {
-		err = s.st.UpdateClientWithCycle(r.Context(), &c)
-	} else {
-		err = s.st.UpdateClient(r.Context(), &c)
-	}
-	if err != nil {
+	s.setResetDay(&c, in.QuotaResetDay, loc)
+	if err := s.st.UpdateClient(r.Context(), &c); err != nil {
 		s.writeFail(w, err)
 		return
 	}
