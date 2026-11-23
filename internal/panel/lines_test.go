@@ -73,6 +73,7 @@ func TestLineValidation(t *testing.T) {
 		{"reality without server name", with(func(m map[string]any) { params(m)["serverName"] = "" }), "reality.serverName"},
 		{"reality malformed server name", with(func(m map[string]any) { params(m)["serverName"] = "-bad.example" }), "reality.serverName"},
 		{"reality target without port", with(func(m map[string]any) { params(m)["target"] = "www.example.com" }), "reality.target"},
+		{"reality target with a malformed host", with(func(m map[string]any) { params(m)["target"] = "bad host:443" }), "reality.target"},
 		{"reality bad short id", with(func(m map[string]any) { params(m)["shortId"] = "xyz" }), "reality.shortId"},
 		{"reality public key without private", with(func(m map[string]any) { params(m)["publicKey"] = "abc" }), "reality.publicKey"},
 		{"bad host", with(func(m map[string]any) { m["host"] = "a b" }), "host"},
