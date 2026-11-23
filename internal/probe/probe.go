@@ -27,9 +27,14 @@ type Prober struct {
 	Timeout time.Duration
 }
 
-// Check does one TLS handshake with host. REALITY needs a cover site that speaks TLS 1.3 and HTTP/2.
+// Check does one TLS handshake with host. REALITY needs a cover site that speaks TLS 1.3 and HTTP/2,
+// and that is not one of the sites so many REALITY servers already imitate (see PopularDest).
 func (p *Prober) Check(ctx context.Context, host string) Result {
 	res := Result{Host: host}
+	if brand := PopularDest(host); brand != "" {
+		res.Problem = "is a popular REALITY cover site (" + brand + ")"
+		return res
+	}
 	timeout := p.Timeout
 	if timeout == 0 {
 		timeout = 4 * time.Second
@@ -56,7 +61,13 @@ func (p *Prober) Check(ctx context.Context, host string) Result {
 	res.Latency = time.Since(start)
 
 	state := conn.(*tls.Conn).ConnectionState()
+	brand := ""
+	if len(state.PeerCertificates) > 0 {
+		brand = popularCert(state.PeerCertificates[0])
+	}
 	switch {
+	case brand != "":
+		res.Problem = "is served like a popular REALITY cover site (" + brand + ")"
 	case state.Version != tls.VersionTLS13:
 		res.Problem = "does not support TLS 1.3"
 	case state.NegotiatedProtocol != "h2":
@@ -96,31 +107,27 @@ var USWestCampuses = []string{
 	"www.arizona.edu", "www.unlv.edu",
 }
 
-// GlobalSites are worldwide vendor sites, the fallback wherever nothing regional answers.
+// GlobalSites are worldwide sites, probed first wherever nothing regional answers.
 // Every host below spoke TLS 1.3 and HTTP/2 with a valid certificate when checked in November 2026.
-var GlobalSites = []string{
-	"www.amazon.com", "aws.amazon.com", "www.nvidia.com", "www.amd.com", "www.intel.com", "www.oracle.com",
-	"www.cisco.com", "www.dell.com", "www.samsung.com", "www.adobe.com", "www.tesla.com", "www.python.org",
-}
+var GlobalSites = []string{"www.oracle.com", "www.python.org"}
 
 // regionSites lists, per server region, large and long-lived local sites: universities, public bodies,
 // carriers and shops. Checked in November 2026 like GlobalSites.
 var regionSites = map[string][]string{
 	"jp": {
 		"www.kyoto-u.ac.jp", "www.kyushu-u.ac.jp", "www.nii.ac.jp", "www.ritsumei.ac.jp", "www.chiba-u.ac.jp", "www.hosei.ac.jp",
-		"www.chuo-u.ac.jp", "www.jma.go.jp", "www.lawson.co.jp", "www.biglobe.ne.jp", "www.nifty.com", "www.itmedia.co.jp",
+		"www.chuo-u.ac.jp", "www.jma.go.jp",
 	},
 	"kr": {
-		"www.snu.ac.kr", "www.uos.ac.kr", "www.kbs.co.kr", "www.nexon.com", "www.gmarket.co.kr", "www.auction.co.kr",
-		"www.lguplus.com", "www.hyundai.com", "www.kia.com", "www.kyobobook.co.kr",
+		"www.snu.ac.kr", "www.uos.ac.kr", "www.kbs.co.kr", "www.lguplus.com", "www.kyobobook.co.kr",
 	},
 	"hk": {
 		"www.gov.hk", "www.hkpl.gov.hk", "hkust.edu.hk", "www.hku.hk", "www.cityu.edu.hk", "www.hkapa.edu",
-		"www.clp.com.hk", "www.mtr.com.hk", "www.discoverhongkong.com", "www.hsbc.com.hk", "www.hangseng.com",
+		"www.clp.com.hk", "www.mtr.com.hk", "www.discoverhongkong.com",
 	},
 	"tw": {
 		"www.ncku.edu.tw", "www.ncu.edu.tw", "www.ntust.edu.tw", "www.ntou.edu.tw", "www.yzu.edu.tw", "www.twnic.tw",
-		"www.pchome.com.tw", "www.books.com.tw", "www.tsmc.com", "www.synology.com", "www.advantech.com", "www.asus.com",
+		"www.books.com.tw",
 	},
 	"sg": {
 		"www.ntu.edu.sg", "www.smu.edu.sg", "www.suss.edu.sg", "www.sp.edu.sg", "www.nyp.edu.sg", "www.rp.edu.sg",
@@ -131,7 +138,35 @@ var regionSites = map[string][]string{
 		"www.cam.ac.uk", "www.ed.ac.uk", "ethz.ch", "www.kit.edu", "www.tu-berlin.de", "www.tudelft.nl",
 		"www.uva.nl", "www.helsinki.fi", "www.uio.no", "www.sorbonne-universite.fr", "www.polimi.it", "www.univie.ac.at",
 	},
-	"other": GlobalSites,
+	// other has no list of its own: it draws on every list, see fallbackSites.
+	"other": nil,
+}
+
+// regionOrder fixes the order fallbackSites walks regionSites in.
+var regionOrder = []string{"jp", "kr", "hk", "tw", "sg", "us", "eu"}
+
+// fallbackSites is what is probed when the region's own sites all fail, and all that is probed
+// for "other": GlobalSites first, then every other region's sites. GlobalSites alone is too short
+// to rely on, and for a server in a region without a list, the quickest of all known sites is
+// the best guess at one nearby.
+func fallbackSites(region string) []string {
+	out := append([]string(nil), GlobalSites...)
+	seen := map[string]bool{}
+	for _, h := range out {
+		seen[h] = true
+	}
+	for _, r := range regionOrder {
+		if r == region {
+			continue
+		}
+		for _, h := range regionSites[r] {
+			if !seen[h] {
+				seen[h] = true
+				out = append(out, h)
+			}
+		}
+	}
+	return out
 }
 
 var ErrUnknownRegion = errors.New("unknown region")
@@ -142,7 +177,7 @@ func KnownRegion(region string) bool {
 }
 
 // CoverSite returns the quickest usable site for the region this server is in, or "" if none answers.
-// An empty region keeps to USWestCampuses; any other falls back to GlobalSites.
+// An empty region keeps to USWestCampuses; any other falls back to fallbackSites.
 func (p *Prober) CoverSite(ctx context.Context, region string) (string, error) {
 	return coverSite(ctx, region, p.Check)
 }
@@ -156,12 +191,14 @@ func coverSite(ctx context.Context, region string, check func(context.Context, s
 	if !ok {
 		return "", fmt.Errorf("%w %q", ErrUnknownRegion, region)
 	}
+	if len(sites) == 0 {
+		site, _ := Fastest(ctx, fallbackSites(region), check)
+		return site, nil
+	}
 	// The fallback is probed alongside so that a dead region costs one timeout, not two.
 	var fallback string
 	var wg sync.WaitGroup
-	if region != "other" {
-		wg.Go(func() { fallback, _ = Fastest(ctx, GlobalSites, check) })
-	}
+	wg.Go(func() { fallback, _ = Fastest(ctx, fallbackSites(region), check) })
 	site, ok := Fastest(ctx, sites, check)
 	wg.Wait()
 	if ok {
