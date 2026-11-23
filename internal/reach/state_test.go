@@ -33,11 +33,11 @@ func TestAdvance(t *testing.T) {
 		{"bad rounds of different kinds still count, the latest kind wins", 2, []step{
 			{OK, OK, "", 0}, {PortBlocked, OK, PortBlocked, 1}, {IPBlocked, IPBlocked, "", 0},
 		}},
-		{"recovery needs as many rounds as trouble", 2, []step{
-			{Down, "", Down, 1}, {Down, Down, "", 0}, {OK, Down, OK, 1}, {OK, OK, "", 0},
+		{"recovery is confirmed by one good round", 2, []step{
+			{Down, "", Down, 1}, {Down, Down, "", 0}, {OK, OK, "", 0},
 		}},
-		{"a bad round in the middle of recovery starts it over", 2, []step{
-			{Down, "", Down, 1}, {Down, Down, "", 0}, {OK, Down, OK, 1}, {Down, Down, "", 0}, {OK, Down, OK, 1},
+		{"trouble after a recovery still waits for confirmation", 2, []step{
+			{Down, "", Down, 1}, {Down, Down, "", 0}, {OK, OK, "", 0}, {Down, OK, Down, 1}, {Down, Down, "", 0},
 		}},
 		{"a different kind of trouble after confirmed trouble also waits", 2, []step{
 			{OK, OK, "", 0}, {Down, OK, Down, 1}, {Down, Down, "", 0}, {IPBlocked, Down, IPBlocked, 1}, {IPBlocked, IPBlocked, "", 0},
@@ -58,6 +58,16 @@ func TestAdvance(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// API.md promises that only trouble waits for confirmation rounds; recovery is confirmed
+// by one good round, so the owner is not told a healthy line is still down for another interval.
+func TestRecoveryIsConfirmedByOneGoodRound(t *testing.T) {
+	s := TargetState{Verdict: Down, Since: t0, Last: Down}
+	s = s.advance(Observation{Verdict: OK}, 3, t0.Add(time.Hour))
+	if s.Verdict != OK || s.Pending != "" || s.Streak != 0 {
+		t.Fatalf("after one good round: verdict %q pending %q streak %d, want ok with nothing pending", s.Verdict, s.Pending, s.Streak)
 	}
 }
 
@@ -100,7 +110,7 @@ func TestApplyAlertsOncePerTransition(t *testing.T) {
 	if !reflect.DeepEqual(sent, want) {
 		t.Errorf("alerts = %+v\nwant     %+v", sent, want)
 	}
-	if got := st.Targets[1].Since; !got.Equal(t0.Add(6 * time.Hour)) {
+	if got := st.Targets[1].Since; !got.Equal(t0.Add(5 * time.Hour)) {
 		t.Errorf("Since = %s, want the round that confirmed recovery", got)
 	}
 }
@@ -129,11 +139,11 @@ func TestApplyFlappingLineDoesNotMailEveryRound(t *testing.T) {
 		sent += len(st.Unsent)
 		st.Unsent = nil
 	}
-	if sent != 1 {
-		t.Errorf("a line flapping every round after going down sent %d alerts, want only the first", sent)
+	if sent != 2 {
+		t.Errorf("a line flapping every round after going down sent %d alerts, want only the first bad/good pair", sent)
 	}
-	if st.Targets[1].Verdict != Down {
-		t.Errorf("verdict = %q, want down: recovery never held for two rounds", st.Targets[1].Verdict)
+	if st.Targets[1].Verdict != OK {
+		t.Errorf("verdict = %q, want ok: one good round confirms recovery", st.Targets[1].Verdict)
 	}
 }
 

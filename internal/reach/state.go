@@ -45,11 +45,12 @@ type State struct {
 
 const maxUnsent = 50
 
-// advance folds one observation in. Any change of verdict, trouble and recovery alike, must
-// repeat confirm rounds in a row, so a line flapping between bad and ok does not mail on every
-// round; bad rounds of different kinds count together and the latest kind wins. The only change
-// taken at once is a first-ever ok, which is not news. A round without data neither counts
-// toward a change nor interrupts it.
+// advance folds one observation in. Trouble must repeat confirm rounds in a row, so a line
+// flapping between bad and ok does not mail on every round; bad rounds of different kinds count
+// together and the latest kind wins. Recovery is taken at once, as API.md promises: the owner
+// should not keep reading that a healthy line is down for further rounds. A first-ever ok is
+// likewise taken at once and is not news. A round without data neither counts toward a change
+// nor interrupts it.
 func (s TargetState) advance(o Observation, confirm int, now time.Time) TargetState {
 	s.Last, s.China, s.Control = o.Verdict, o.China, o.Control
 	switch {
@@ -59,6 +60,7 @@ func (s TargetState) advance(o Observation, confirm int, now time.Time) TargetSt
 		s.Pending, s.Streak = "", 0
 		return s
 	case s.Verdict == "" && o.Verdict == OK:
+	case s.Verdict.Bad() && o.Verdict == OK:
 	default:
 		if s.Pending == "" || s.Pending.Bad() != o.Verdict.Bad() {
 			s.Streak = 0
