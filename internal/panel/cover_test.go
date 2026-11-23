@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Link2theWorld/mintyx/internal/probe"
 	"github.com/Link2theWorld/mintyx/internal/reach"
 )
 
@@ -17,6 +18,30 @@ type fakePicker struct {
 
 	mu       sync.Mutex
 	filtered []bool
+	// bad maps a site that fails Check to its problem.
+	bad map[string]string
+}
+
+func (p *fakePicker) Check(_ context.Context, host string) probe.Result {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if problem, ok := p.bad[host]; ok {
+		return probe.Result{Host: host, Problem: problem}
+	}
+	return probe.Result{Host: host, OK: true, Latency: time.Millisecond}
+}
+
+func (p *fakePicker) setBad(host, problem string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.bad == nil {
+		p.bad = map[string]string{}
+	}
+	if problem == "" {
+		delete(p.bad, host)
+	} else {
+		p.bad[host] = problem
+	}
 }
 
 func (p *fakePicker) Pick(ctx context.Context, _ string, accept func(context.Context, string) bool) string {
@@ -24,7 +49,7 @@ func (p *fakePicker) Pick(ctx context.Context, _ string, accept func(context.Con
 	p.filtered = append(p.filtered, accept != nil)
 	p.mu.Unlock()
 	for _, s := range p.sites {
-		if accept == nil || accept(ctx, s) {
+		if p.Check(ctx, s).OK && (accept == nil || accept(ctx, s)) {
 			return s
 		}
 	}

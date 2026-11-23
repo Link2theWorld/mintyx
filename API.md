@@ -348,6 +348,8 @@ Globalping 对匿名调用按来源 IP 限制每小时 250 次测试，一次测
 
 每个改动状态的管理请求、每次登录成功与失败都记一条。`action` 是稳定的英文标识
 （如 `line.create`、`client.rotate`、`login.fail`、`exit.create`、`routing.update`），`target` 是对象名称，
+面板自己做的改动来源 IP 为空，如 `line.cover-switch`（定期复查后自动更换 REALITY 伪装站，`detail` 形如 `旧站 → 新站: 原因`），
+
 前端负责把 `action` 翻译成界面语言。密码、密钥、令牌不得写入 `detail`。
 
 ## 设置

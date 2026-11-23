@@ -159,6 +159,8 @@ type Server struct {
 	// coverCheck asks mainland probes about cover sites; coverMu serialises its cache.
 	coverCheck reach.CoverChecker
 	coverMu    sync.Mutex
+	// covers is Config.Covers; nil leaves the lines' cover sites unchecked after they are set.
+	covers CoverPicker
 	// reachRunning admits one round at a time, whether the loop or the admin started it.
 	reachRunning atomic.Bool
 
@@ -216,10 +218,9 @@ func New(cfg Config) (*Server, error) {
 			s.coverCheck = c
 		}
 	}
-	if cfg.Covers != nil {
-		covers := cfg.Covers
+	if s.covers = cfg.Covers; s.covers != nil {
 		s.coverSite = func(ctx context.Context, region string) string {
-			return covers.Pick(ctx, region, s.coverAccept(ctx))
+			return s.covers.Pick(ctx, region, s.coverAccept(ctx))
 		}
 	}
 	if s.log == nil {

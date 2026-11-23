@@ -488,6 +488,7 @@ export const en: Record<MessageKey, string> = {
   "audit.action.line.update": "Line changed",
   "audit.action.line.delete": "Line deleted",
   "audit.action.port.free": "Program holding a port stopped",
+  "audit.action.line.cover-switch": "Cover site replaced automatically",
   "audit.action.client.create": "Visitor created",
   "audit.action.client.update": "Visitor changed",
   "audit.action.client.delete": "Visitor deleted",

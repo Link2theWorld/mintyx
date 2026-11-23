@@ -487,6 +487,7 @@ export const zh = {
   "audit.action.line.update": "修改线路",
   "audit.action.line.delete": "删除线路",
   "audit.action.port.free": "停掉占用端口的程序",
+  "audit.action.line.cover-switch": "自动更换伪装站",
   "audit.action.client.create": "新建访客",
   "audit.action.client.update": "修改访客",
   "audit.action.client.delete": "删除访客",

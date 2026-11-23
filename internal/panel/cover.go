@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 
+	"github.com/Link2theWorld/mintyx/internal/probe"
 	"github.com/Link2theWorld/mintyx/internal/reach"
 )
 
@@ -20,6 +22,8 @@ type CoverPicker interface {
 	// Pick returns a usable site for region that accept keeps, or "" when there is none.
 	// accept of nil keeps every site.
 	Pick(ctx context.Context, region string, accept func(context.Context, string) bool) string
+	// Check says whether host still qualifies as a cover site, as seen from this server.
+	Check(ctx context.Context, host string) probe.Result
 }
 
 // noCoverCheck stands in when no mainland checker is configured: no site ever gets a verdict.
@@ -34,17 +38,34 @@ func (noCoverCheck) CheckCover(context.Context, string) (reach.CoverVerdict, err
 // mainland probes turned down is skipped; a site without a verdict (no budget left, the API
 // failing) is kept, so the choice falls back to what it would be with the check off.
 func (s *Server) coverAccept(ctx context.Context) func(context.Context, string) bool {
+	vet := s.coverVetter(ctx)
+	if vet == nil {
+		return nil
+	}
+	return func(ctx context.Context, host string) bool { return vet(ctx, host) == "" }
+}
+
+// coverVetter is coverAccept saying why: it returns what mainland probes hold against a site,
+// "" when nothing or when there is no verdict, and is nil while the reachability check is off.
+// One vetter starts at most coverChecksPerPick fresh checks.
+func (s *Server) coverVetter(ctx context.Context) func(context.Context, string) string {
 	cfg, _, err := s.loadReachConfig(ctx)
 	if err != nil || !cfg.Enabled {
 		return nil
 	}
+	var mu sync.Mutex
 	checks := 0
-	return func(ctx context.Context, host string) bool {
+	return func(ctx context.Context, host string) string {
+		mu.Lock()
+		defer mu.Unlock()
 		v, known, checked := s.vetCover(ctx, host, checks < coverChecksPerPick)
 		if checked {
 			checks++
 		}
-		return !known || v.OK
+		if !known || v.OK {
+			return ""
+		}
+		return "mainland China probes: " + v.Problem
 	}
 }
 
