@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -159,6 +160,20 @@ func TestLoginThrottlingPerIP(t *testing.T) {
 	*f.clock = f.clock.Add(loginLockout + time.Second)
 	w = f.do("POST", "/api/login", right, attacker)
 	expectStatus(t, w, http.StatusNoContent)
+}
+
+func TestLoginLimiterFloodCannotGrowMemoryOrBypassThrottle(t *testing.T) {
+	l := newLoginLimiter()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < limiterSweepAt+1000; i++ {
+		l.fail(fmt.Sprintf("2001:db8::%x", i), now)
+	}
+	if got := len(l.m); got > limiterSweepAt {
+		t.Fatalf("limiter tracks %d addresses after a flood, want at most %d", got, limiterSweepAt)
+	}
+	if d := l.blocked("2001:db8::ffff", now); d <= 0 {
+		t.Fatal("an untracked flood address bypasses the throttle")
+	}
 }
 
 func TestLoginWrongUsername(t *testing.T) {
