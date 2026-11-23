@@ -7,6 +7,44 @@ import (
 	"testing"
 )
 
+func TestValidHostnameShape(t *testing.T) {
+	for _, h := range []string{
+		"example.com",
+		"a-b.example",
+		"localhost",
+		"xn--nxasmq6b.example",
+		"1.example.com",
+		strings.Repeat("a", 63) + ".example",
+	} {
+		if !validHostname(h) {
+			t.Errorf("validHostname(%q) = false, want true", h)
+		}
+	}
+	for _, h := range []string{
+		"",
+		".",
+		".example.com",
+		"example..com",
+		"-bad.example",
+		"bad-.example",
+		"example.com.",
+		"123",
+		"123.456",
+		"a.123",
+		strings.Repeat("a", 64) + ".example",
+	} {
+		if validHostname(h) {
+			t.Errorf("validHostname(%q) = true, want false", h)
+		}
+	}
+	if validDialHost("123.456") {
+		t.Error(`validDialHost("123.456") = true, want false`)
+	}
+	if !validDialHost("203.0.113.7") {
+		t.Error(`validDialHost("203.0.113.7") = false, want true`)
+	}
+}
+
 func TestLineValidation(t *testing.T) {
 	f := newFixture(t, nil)
 	c := f.setup()
@@ -29,10 +67,12 @@ func TestLineValidation(t *testing.T) {
 		{"unknown protocol", with(func(m map[string]any) { m["protocol"] = "vmess" }), "protocol"},
 		{"missing params block", with(func(m map[string]any) { delete(m, "reality") }), "reality"},
 		{"reality without server name", with(func(m map[string]any) { params(m)["serverName"] = "" }), "reality.serverName"},
+		{"reality malformed server name", with(func(m map[string]any) { params(m)["serverName"] = "-bad.example" }), "reality.serverName"},
 		{"reality target without port", with(func(m map[string]any) { params(m)["target"] = "www.example.com" }), "reality.target"},
 		{"reality bad short id", with(func(m map[string]any) { params(m)["shortId"] = "xyz" }), "reality.shortId"},
 		{"reality public key without private", with(func(m map[string]any) { params(m)["publicKey"] = "abc" }), "reality.publicKey"},
 		{"bad host", with(func(m map[string]any) { m["host"] = "a b" }), "host"},
+		{"malformed numeric host", with(func(m map[string]any) { m["host"] = "123.456" }), "host"},
 		{"xhttp tls without cert", map[string]any{"name": "x", "protocol": "vless-xhttp", "port": 8443,
 			"xhttp": map[string]any{"path": "/p", "domain": "cdn.example.com", "security": "tls", "keyFile": "/k"}}, "xhttp.certFile"},
 		{"xhttp without domain", map[string]any{"name": "x", "protocol": "vless-xhttp", "port": 8443,

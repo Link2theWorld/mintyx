@@ -75,12 +75,28 @@ func lineToDTO(l model.Line) lineDTO {
 }
 
 func validHostname(h string) bool {
-	if h == "" || len(h) > 253 {
+	if h == "" || len(h) > 253 || strings.HasSuffix(h, ".") {
 		return false
 	}
-	for i := 0; i < len(h); i++ {
-		c := h[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.') {
+	labels := strings.Split(h, ".")
+	for i, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		numeric := true
+		for j := 0; j < len(label); j++ {
+			c := label[j]
+			switch {
+			case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-':
+				numeric = false
+			case c >= '0' && c <= '9':
+			default:
+				return false
+			}
+		}
+		// The top label must not be all digits: without that rule "123.456" is taken for a
+		// host name instead of rejected as a bad IPv4 literal.
+		if numeric && i == len(labels)-1 {
 			return false
 		}
 	}
