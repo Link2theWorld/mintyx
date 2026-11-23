@@ -53,12 +53,12 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/lines` | `{"lines": [Line]}` |
-| POST | `/api/lines/draft` | 请求 `{"protocol","region"}`，返回一个未保存、已填好默认值的 Line（含建议端口，无 `id`）。端口：REALITY 固定为 443，即使 443 已被别的线路占用（保存时才 409）；XHTTP 取 8443、2053、2083、2087、2096 里第一个空闲的；Hysteria2 取 443；都被占用时取随机高位端口。REALITY 的 `publicKey` 留空，密钥对在保存时生成。`region` 可省略，是服务器所在地区：`jp` `kr` `hk` `tw` `sg` `us` `eu` `other`，REALITY 的 `serverName`/`target` 取该地区候选站点里从服务器握手最快的一个，当地都不可用时退回全球站点；省略时用设置里的 `serverRegion`，那也没有时按美西高校站点挑选；一个可用站点都没有时两项留空。未知地区 400 `invalid`，`field` 为 `region` |
+| POST | `/api/lines/draft` | 请求 `{"protocol","region"}`，返回一个未保存、已填好默认值的 Line（含建议端口，无 `id`）。端口：REALITY 固定为 443，即使 443 已被别的线路占用（保存时才 409）；XHTTP 取 8443、2053、2083、2087、2096 里第一个空闲的；Hysteria2 取 443/udp，与 REALITY 的 443/tcp 互不影响；都被占用时取随机高位端口。端口是否空闲按「端口号 + 传输层」判断。REALITY 的 `publicKey` 留空，密钥对在保存时生成。`region` 可省略，是服务器所在地区：`jp` `kr` `hk` `tw` `sg` `us` `eu` `other`，REALITY 的 `serverName`/`target` 取该地区候选站点里从服务器握手最快的一个，当地都不可用时退回全球站点；省略时用设置里的 `serverRegion`，那也没有时按美西高校站点挑选；一个可用站点都没有时两项留空。未知地区 400 `invalid`，`field` 为 `region` |
 | POST | `/api/lines` | 请求为 Line（无 `id`）。REALITY 省略 `publicKey` 时后端生成一对密钥 |
 | PUT | `/api/lines/{id}` | 整体更新。不能改 `protocol` |
 
 线路端口的规则：
-- 两条线路不能用同一个端口，否则 409 `conflict`，`field` 为 `port`。
+- 端口按「端口号 + 传输层」计：REALITY、XHTTP 用 TCP，Hysteria2 用 UDP。同一传输层上两条线路不能用同一个端口，否则 409 `conflict`，`field` 为 `port`；REALITY 在 443/tcp、Hysteria2 在 443/udp 可以并存。面板自身和 Xray API 的保留端口只占 TCP。
 - REALITY 线路的端口必须是 443，否则 400 `invalid`，`field` 为 `port`。之前已存在别的端口上的
   REALITY 线路，更新时可以保留原端口，或改到 443。一台服务器因此只有一条 REALITY 线路（443 上）。
 - 保存后处于启用状态、端口为 443 的 REALITY 线路，在交给 Xray 之前先腾出 443/tcp：除面板自己

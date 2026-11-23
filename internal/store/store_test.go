@@ -154,6 +154,8 @@ func TestDuplicatePortConflict(t *testing.T) {
 	assertConflict(t, s.CreateLine(ctx, realityLine(443)), "port")
 	b.Port = 443
 	assertConflict(t, s.UpdateLine(ctx, b), "port")
+	// XHTTP is TCP as well.
+	assertConflict(t, s.CreateLine(ctx, xhttpLine(443)), "port")
 
 	lines, err := s.ListLines(ctx)
 	if err != nil {
@@ -161,6 +163,98 @@ func TestDuplicatePortConflict(t *testing.T) {
 	}
 	if len(lines) != 2 || lines[0].Port != 443 || lines[1].Port != 8443 {
 		t.Fatalf("ListLines = %+v, want ports [443 8443]", lines)
+	}
+}
+
+func xhttpLine(port int) *model.Line {
+	return &model.Line{Name: fmt.Sprintf("x%d", port), Protocol: model.VLESSXHTTP, Port: port, Enabled: true,
+		XHTTP: &model.XHTTPParams{Path: "/p", Domain: "x.example.org", Security: model.XHTTPPlain}}
+}
+
+func hy2Line(port int) *model.Line {
+	return &model.Line{Name: fmt.Sprintf("h%d", port), Protocol: model.Hysteria2, Port: port, Enabled: true,
+		Hysteria2: &model.Hysteria2Params{CertFile: "/c", KeyFile: "/k"}}
+}
+
+// 443/tcp and 443/udp are different ports: REALITY and Hysteria2 may both use 443.
+func TestSamePortOnTCPAndUDP(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	h := hy2Line(443)
+	if err := s.CreateLine(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateLine(ctx, realityLine(443)); err != nil {
+		t.Fatalf("REALITY on 443/tcp next to Hysteria2 on 443/udp: %v", err)
+	}
+	var ce *ConflictError
+	if err := s.CreateLine(ctx, hy2Line(443)); !errors.As(err, &ce) || ce.Field != "port" {
+		t.Fatalf("second Hysteria2 on 443 err = %v, want a conflict on port", err)
+	}
+	other := hy2Line(8443)
+	if err := s.CreateLine(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	other.Port = 443
+	if err := s.UpdateLine(ctx, other); !errors.As(err, &ce) || ce.Field != "port" {
+		t.Fatalf("moving a Hysteria2 line onto a taken 443/udp err = %v, want a conflict on port", err)
+	}
+}
+
+// A database from before ports were per transport keeps its lines, their wiring and its ID counter.
+func TestMigrationMakesPortsPerTransport(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "mintyx.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const before = 4
+	stmts := append([]string{`CREATE TABLE schema_version (version INTEGER NOT NULL)`}, migrations[:before]...)
+	stmts = append(stmts,
+		fmt.Sprintf(`INSERT INTO schema_version (version) VALUES (%d)`, before),
+		`INSERT INTO exits (id, name, protocol, params, created_at) VALUES (1, 'osaka', 'socks', '{}', '2026-01-01T00:00:00.000000000Z')`,
+		`INSERT INTO lines (id, name, protocol, port, enabled, host, params, created_at, exit_id) VALUES
+			(2, 'tokyo', 'vless-reality', 443, 1, '', '{"private_key":"k","public_key":"p","short_id":"ab","server_name":"www.example.com","target":"www.example.com:443"}', '2026-01-01T00:00:00.000000000Z', 1),
+			(5, 'quic', 'hysteria2', 8443, 0, '', '{"cert_file":"/c","key_file":"/k"}', '2026-01-01T00:00:00.000000000Z', NULL)`,
+		// Lines up to 9 existed once and were deleted.
+		`UPDATE sqlite_sequence SET seq = 9 WHERE name = 'lines'`,
+	)
+	for _, q := range stmts {
+		if _, err := old.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	_ = old.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open after migration: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	lines, err := s.ListLines(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || lines[0].ID != 2 || lines[0].ExitID != 1 || lines[0].Reality.PrivateKey != "k" ||
+		lines[1].ID != 5 || lines[1].Port != 8443 || lines[1].Enabled {
+		t.Fatalf("lines after migration = %+v", lines)
+	}
+	h := hy2Line(443)
+	if err := s.CreateLine(ctx, h); err != nil {
+		t.Fatalf("Hysteria2 on 443/udp next to the migrated REALITY line: %v", err)
+	}
+	if h.ID != 10 {
+		t.Fatalf("new line ID = %d, want 10: a deleted line's ID must not come back", h.ID)
+	}
+	var ce *ConflictError
+	if err := s.CreateLine(ctx, xhttpLine(443)); !errors.As(err, &ce) || ce.Field != "port" {
+		t.Fatalf("XHTTP on the migrated REALITY line's 443/tcp err = %v, want a conflict on port", err)
+	}
+	moved := lines[1]
+	moved.Port = 443
+	if err := s.UpdateLine(ctx, &moved); !errors.As(err, &ce) || ce.Field != "port" {
+		t.Fatalf("migrated Hysteria2 line onto a taken 443/udp err = %v, want a conflict on port", err)
 	}
 }
 

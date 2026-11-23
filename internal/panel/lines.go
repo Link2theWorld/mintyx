@@ -142,7 +142,8 @@ func (s *Server) buildLine(d lineDTO, prev *model.Line) (model.Line, error) {
 	if !validPort(l.Port) {
 		return l, invalid("port", "port must be between 1 and 65535")
 	}
-	if s.reserved[l.Port] {
+	// The panel and Xray's API listen on TCP only; a UDP line may use the same number.
+	if l.Protocol.Network() == model.TCP && s.reserved[l.Port] {
 		return l, invalid("port", "port is reserved by the panel")
 	}
 	// A line saved on another port before REALITY was pinned to 443 may keep that port.
@@ -260,8 +261,15 @@ const realityPort = 443
 // xhttpPorts are offered to new XHTTP lines first: HTTPS ports that CDNs pass through.
 var xhttpPorts = []int{8443, 2053, 2083, 2087, 2096}
 
+// portKey is a port as the kernel sees it: 443/tcp and 443/udp are two different ports.
+type portKey struct {
+	port    int
+	network model.Network
+}
+
 // suggestPort picks the port a new line of protocol p is drafted with. REALITY always gets 443,
-// taken or not: a second REALITY line is refused when it is saved.
+// taken or not: a second REALITY line is refused when it is saved. Hysteria2 also asks for 443,
+// on UDP, so it sits next to REALITY's 443/tcp.
 func (s *Server) suggestPort(ctx context.Context, p model.Protocol) (int, error) {
 	if p == model.VLESSReality {
 		return realityPort, nil
@@ -270,11 +278,14 @@ func (s *Server) suggestPort(ctx context.Context, p model.Protocol) (int, error)
 	if err != nil {
 		return 0, err
 	}
-	used := map[int]bool{}
+	used := map[portKey]bool{}
 	for _, l := range lines {
-		used[l.Port] = true
+		used[portKey{l.Port, l.Protocol.Network()}] = true
 	}
-	free := func(port int) bool { return !used[port] && !s.reserved[port] }
+	network := p.Network()
+	free := func(port int) bool {
+		return !used[portKey{port, network}] && !(network == model.TCP && s.reserved[port])
+	}
 	preferred := []int{realityPort}
 	if p == model.VLESSXHTTP {
 		preferred = xhttpPorts

@@ -219,15 +219,15 @@ func enabledClients(clients []model.Client) []model.Client {
 // checkPorts rejects two listeners on the same port and transport; Xray's -test does not bind, so it would not catch this.
 func checkPorts(lines []model.Line, apiPort int) error {
 	type key struct {
-		port int
-		udp  bool
+		port    int
+		network model.Network
 	}
-	owner := map[key]string{{apiPort, false}: "the API inbound"}
+	owner := map[key]string{{apiPort, model.TCP}: "the API inbound"}
 	for _, l := range lines {
 		if l.Port < 1 || l.Port > 65535 {
 			return &LineError{LineID: l.ID, Field: "Port", Problem: fmt.Sprintf("%d is not a port number", l.Port)}
 		}
-		k := key{l.Port, l.Protocol == model.Hysteria2}
+		k := key{l.Port, l.Protocol.Network()}
 		if other, taken := owner[k]; taken {
 			return &LineError{LineID: l.ID, Field: "Port", Problem: fmt.Sprintf("%d is already used by %s", l.Port, other)}
 		}

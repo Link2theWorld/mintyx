@@ -97,8 +97,8 @@ func (s *Store) CreateLine(ctx context.Context, l *model.Line) error {
 	}
 	created := now()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO lines (name, protocol, port, enabled, host, params, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		l.Name, string(l.Protocol), l.Port, l.Enabled, l.Host, params, formatTime(created))
+		`INSERT INTO lines (name, protocol, port, network, enabled, host, params, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		l.Name, string(l.Protocol), l.Port, string(l.Protocol.Network()), l.Enabled, l.Host, params, formatTime(created))
 	if err != nil {
 		return mapErr(err)
 	}
@@ -117,8 +117,8 @@ func (s *Store) UpdateLine(ctx context.Context, l *model.Line) error {
 		return err
 	}
 	return expectOneRow(s.db.ExecContext(ctx,
-		`UPDATE lines SET name = ?, protocol = ?, port = ?, enabled = ?, host = ?, params = ? WHERE id = ?`,
-		l.Name, string(l.Protocol), l.Port, l.Enabled, l.Host, params, l.ID))
+		`UPDATE lines SET name = ?, protocol = ?, port = ?, network = ?, enabled = ?, host = ?, params = ? WHERE id = ?`,
+		l.Name, string(l.Protocol), l.Port, string(l.Protocol.Network()), l.Enabled, l.Host, params, l.ID))
 }
 
 func (s *Store) DeleteLine(ctx context.Context, id int64) error {

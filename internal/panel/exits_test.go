@@ -88,6 +88,9 @@ func TestExitLinkToOwnLineIsRefused(t *testing.T) {
 	// The fixture's requests arrive for panel.test, the host share links use when publicHost is empty.
 	w := f.do("POST", "/api/exits", map[string]any{"name": "loop", "link": realityLink(testHost, 443, "loop")}, withCookie(c))
 	expectError(t, w, http.StatusBadRequest, codeInvalid, "link")
+	// Hysteria2 dials 443/udp, where this server runs no line.
+	udp := strings.Replace(hy2Link, "198.51.100.9", testHost, 1)
+	expectStatus(t, f.do("POST", "/api/exits", map[string]any{"name": "udp", "link": udp}, withCookie(c)), http.StatusCreated)
 	client := f.createClient(c, "friend", 0)
 	got, _ := f.st.GetClient(t.Context(), client.ID)
 	w = f.do("POST", "/api/exits", map[string]any{"name": "secret", "link": strings.Replace(realityLink("203.0.113.7", 443, "x"), exitSecret, got.Secret, 1)}, withCookie(c))

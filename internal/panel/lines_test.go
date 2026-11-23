@@ -309,9 +309,67 @@ func TestLineDraftSuggestsPortByProtocol(t *testing.T) {
 	if p := draftPort("vless-reality"); p != 443 {
 		t.Fatalf("REALITY draft port with 443 taken = %v, want 443", p)
 	}
-	if p := draftPort("hysteria2"); p == 443 || p == 8443 || p == 2053 || p == 2083 || p == 2087 || p == 2096 {
-		t.Fatalf("Hysteria2 draft port = %v, want neither a taken port nor one kept for XHTTP", p)
+	// REALITY holds 443/tcp, which leaves 443/udp to Hysteria2.
+	if p := draftPort("hysteria2"); p != 443 {
+		t.Fatalf("Hysteria2 draft port = %v, want 443 (on UDP)", p)
 	}
+}
+
+func hysteria2Line(name string, port int) map[string]any {
+	return map[string]any{
+		"name": name, "protocol": "hysteria2", "port": port, "enabled": true,
+		"hysteria2": map[string]any{"domain": "h.example.com", "certFile": "/c", "keyFile": "/k"},
+	}
+}
+
+// Hysteria2 is UDP, so it must not push REALITY off 443/tcp, nor the other way round.
+func TestHysteria2AndRealityBothOn443(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	draft := func(protocol string) map[string]any {
+		t.Helper()
+		w := f.do("POST", "/api/lines/draft", map[string]string{"protocol": protocol}, withCookie(c))
+		expectStatus(t, w, http.StatusOK)
+		return decodeBody[map[string]any](t, w)
+	}
+
+	hy := draft("hysteria2")
+	if hy["port"] != float64(443) {
+		t.Fatalf("Hysteria2 draft port = %v, want 443", hy["port"])
+	}
+	hy["hysteria2"] = map[string]any{"certFile": "/c", "keyFile": "/k"}
+	expectStatus(t, f.do("POST", "/api/lines", hy, withCookie(c)), http.StatusCreated)
+
+	re := draft("vless-reality")
+	if re["port"] != float64(443) {
+		t.Fatalf("REALITY draft port after Hysteria2 = %v, want 443", re["port"])
+	}
+	expectStatus(t, f.do("POST", "/api/lines", re, withCookie(c)), http.StatusCreated)
+
+	lines, err := f.st.ListLines(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var networks []string
+	for _, l := range lines {
+		if l.Port != 443 {
+			t.Fatalf("line %q is on port %d, want 443", l.Name, l.Port)
+		}
+		networks = append(networks, string(l.Protocol.Network()))
+	}
+	if !slices.Equal(networks, []string{"udp", "tcp"}) {
+		t.Fatalf("lines on 443 use %v, want one udp and one tcp", networks)
+	}
+
+	// Each transport's 443 is still taken once.
+	expectError(t, f.do("POST", "/api/lines", hysteria2Line("hy2", 443), withCookie(c)), http.StatusConflict, codeConflict, "port")
+	expectError(t, f.do("POST", "/api/lines", xhttpLine("cdn", 443), withCookie(c)), http.StatusConflict, codeConflict, "port")
+	if p := draft("hysteria2")["port"]; p == float64(443) {
+		t.Fatal("a second Hysteria2 draft was given the taken 443/udp")
+	}
+	// The panel's reserved ports are TCP listeners; a UDP line may use the number.
+	expectStatus(t, f.do("POST", "/api/lines", hysteria2Line("udp-2096", 2096), withCookie(c)), http.StatusCreated)
+	expectError(t, f.do("POST", "/api/lines", xhttpLine("tcp-2096", 2096), withCookie(c)), http.StatusBadRequest, codeInvalid, "port")
 }
 
 func TestLineDraftSuggestsFreePort(t *testing.T) {

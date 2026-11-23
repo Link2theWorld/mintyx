@@ -35,7 +35,7 @@ const state = {
       xhttp: { path: "/a9f3c1", domain: "cdn.example.com", security: "none", certFile: "", keyFile: "" },
     },
     {
-      id: 3, name: "UDP 加速", protocol: "hysteria2", port: 8443, enabled: false, host: "", createdAt: iso(-3 * DAY),
+      id: 3, name: "UDP 加速", protocol: "hysteria2", port: 443, enabled: false, host: "", createdAt: iso(-3 * DAY),
       hysteria2: { domain: "hy.example.com", certFile: "/etc/ssl/hy/fullchain.pem", keyFile: "/etc/ssl/hy/privkey.pem", obfsPassword: "" },
     },
   ].map((l) => ({ ...l, exitId: l.id === 1 ? 1 : null })) as Json[],
@@ -103,10 +103,15 @@ const coverSites: Record<string, string> = {
   sg: "www.ntu.edu.sg", us: "www.berkeley.edu", eu: "www.cam.ac.uk", other: "www.nvidia.com",
 };
 
-// Like the panel: REALITY is always drafted on 443; XHTTP tries the CDN-friendly ports, Hysteria2 tries 443.
+// Hysteria2 listens on UDP, the others on TCP; 443/tcp and 443/udp are different ports.
+const network = (protocol: unknown) => (protocol === "hysteria2" ? "udp" : "tcp");
+const portTaken = (b: Json, exceptId?: number) =>
+  state.lines.some((l) => l.port === b.port && network(l.protocol) === network(b.protocol) && l.id !== exceptId);
+
+// Like the panel: REALITY is always drafted on 443; XHTTP tries the CDN-friendly ports, Hysteria2 tries 443/udp.
 function draftPort(protocol: string): number {
   if (protocol === "vless-reality") return 443;
-  const used = new Set(state.lines.map((l) => l.port));
+  const used = new Set(state.lines.filter((l) => network(l.protocol) === network(protocol)).map((l) => l.port));
   const preferred = protocol === "vless-xhttp" ? [8443, 2053, 2083, 2087, 2096] : [443];
   const free = preferred.find((p) => !used.has(p));
   if (free !== undefined) return free;
@@ -184,7 +189,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (path === "/api/lines" && method === "POST") {
     const b = await readBody(req);
     if (b.protocol === "vless-reality" && b.port !== 443) return fail(res, 400, "invalid", "REALITY lines listen on port 443", "port");
-    if (state.lines.some((l) => l.port === b.port)) return fail(res, 409, "conflict", "port already used", "port");
+    if (portTaken(b)) return fail(res, 409, "conflict", "port already used", "port");
     // exitId is read-only (API.md): a new line leaves directly until PUT /api/routing says otherwise.
     state.lines.push({ ...b, id: state.nextId++, exitId: null, createdAt: new Date().toISOString() });
     return send(res, 201, state.lines[state.lines.length - 1]);
@@ -197,7 +202,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (method === "DELETE") { state.lines.splice(i, 1); return send(res, 204); }
     const b = await readBody(req);
     if (b.protocol === "vless-reality" && b.port !== 443 && b.port !== state.lines[i]?.port) return fail(res, 400, "invalid", "REALITY lines listen on port 443", "port");
-    if (state.lines.some((l) => l.port === b.port && l.id !== id)) return fail(res, 409, "conflict", "port already used", "port");
+    if (portTaken(b, id)) return fail(res, 409, "conflict", "port already used", "port");
     state.lines[i] = { ...state.lines[i], ...b, exitId: state.lines[i]?.exitId ?? null };
     return send(res, 200, state.lines[i]);
   }

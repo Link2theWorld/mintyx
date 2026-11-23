@@ -22,6 +22,23 @@ func (p Protocol) Valid() bool {
 	return false
 }
 
+// Network is the transport a line of this protocol listens on. Two lines may share a port
+// number when one is TCP and the other UDP.
+type Network string
+
+const (
+	TCP Network = "tcp"
+	UDP Network = "udp"
+)
+
+// Network says whether a line of protocol p listens on TCP or UDP: Hysteria2 runs over QUIC.
+func (p Protocol) Network() Network {
+	if p == Hysteria2 {
+		return UDP
+	}
+	return TCP
+}
+
 // Line is one listening port on the server. Every enabled client may use every enabled line.
 type Line struct {
 	ID       int64

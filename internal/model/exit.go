@@ -26,6 +26,14 @@ func (p ExitProtocol) Valid() bool {
 	return false
 }
 
+// Network is the transport the panel dials an exit of protocol p over.
+func (p ExitProtocol) Network() Network {
+	if p == ExitHysteria2 {
+		return UDP
+	}
+	return TCP
+}
+
 // Exit is another proxy server, given to the panel as a share link, that a line's traffic can
 // leave through instead of going straight out. Exits chain: NextID is the exit this one's
 // traffic continues through, so line → A → B means the line's ExitID is A and A's NextID is B.

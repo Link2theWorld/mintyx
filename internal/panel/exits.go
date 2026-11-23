@@ -122,7 +122,7 @@ func (s *Server) pointsAtSelf(ctx context.Context, r *http.Request, p model.Exit
 		return false, err
 	}
 	for _, l := range lines {
-		if !l.Enabled || l.Port != p.Port {
+		if !l.Enabled || l.Port != p.Port || l.Protocol.Network() != p.Protocol.Network() {
 			continue
 		}
 		host := l.Host

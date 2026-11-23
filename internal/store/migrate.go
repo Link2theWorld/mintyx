@@ -92,6 +92,32 @@ CREATE TABLE exits (
 );
 ALTER TABLE lines ADD COLUMN exit_id INTEGER REFERENCES exits(id) ON DELETE SET NULL;
 `,
+	// A port number is unique per transport only: REALITY on 443/tcp and Hysteria2 on 443/udp
+	// coexist. SQLite cannot drop a column's UNIQUE, so the table is rebuilt; its AUTOINCREMENT
+	// counter moves along, so a deleted line's ID is never handed out again.
+	`
+CREATE TABLE lines_new (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL,
+	port       INTEGER NOT NULL,
+	network    TEXT    NOT NULL,
+	enabled    INTEGER NOT NULL,
+	host       TEXT    NOT NULL,
+	params     TEXT    NOT NULL,
+	created_at TEXT    NOT NULL,
+	exit_id    INTEGER REFERENCES exits(id) ON DELETE SET NULL,
+	UNIQUE (port, network)
+);
+INSERT INTO lines_new (id, name, protocol, port, network, enabled, host, params, created_at, exit_id)
+	SELECT id, name, protocol, port, CASE protocol WHEN 'hysteria2' THEN 'udp' ELSE 'tcp' END,
+	       enabled, host, params, created_at, exit_id
+	FROM lines;
+DELETE FROM sqlite_sequence WHERE name = 'lines_new';
+UPDATE sqlite_sequence SET name = 'lines_new' WHERE name = 'lines';
+DROP TABLE lines;
+ALTER TABLE lines_new RENAME TO lines;
+`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
