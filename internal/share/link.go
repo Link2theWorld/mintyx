@@ -24,6 +24,7 @@ const (
 )
 
 // endpoint is everything a client needs to reach one line, independent of output format.
+// A remote line (another server's) is carried as a line of the matching protocol.
 type endpoint struct {
 	line   model.Line
 	host   string
@@ -33,10 +34,15 @@ type endpoint struct {
 	// tls is true when the client must speak TLS (REALITY has its own field).
 	tls        bool
 	serverName string
-	reality    *model.RealityParams
-	xhttpPath  string
-	xhttpHost  string
-	obfsPass   string
+	// fp is the TLS fingerprint of VLESS lines; flow is "" or the Vision flow.
+	fp        string
+	flow      string
+	reality   *model.RealityParams
+	xhttpPath string
+	// xhttpHost and xhttpMode may be empty only on a remote line.
+	xhttpHost string
+	xhttpMode string
+	obfsPass  string
 }
 
 // resolve validates a line for one client and works out the address the client dials.
@@ -66,6 +72,7 @@ func resolve(line model.Line, c model.Client, defaultHost string) (endpoint, err
 		}
 		ep.reality = r
 		ep.serverName = r.ServerName
+		ep.fp, ep.flow = defaultFP, visionFlow
 	case model.VLESSXHTTP:
 		x := line.XHTTP
 		if x == nil {
@@ -76,6 +83,7 @@ func resolve(line model.Line, c model.Client, defaultHost string) (endpoint, err
 		}
 		ep.tls = true
 		ep.serverName = x.Domain
+		ep.fp = defaultFP
 		ep.xhttpHost = x.Domain
 		ep.xhttpPath = x.Path
 		if ep.xhttpPath == "" {
@@ -141,10 +149,12 @@ func (ep endpoint) uri() string {
 	switch ep.line.Protocol {
 	case model.VLESSReality:
 		q.add("encryption", vlessEncNone)
-		q.add("flow", visionFlow)
+		if ep.flow != "" {
+			q.add("flow", ep.flow)
+		}
 		q.add("security", "reality")
 		q.add("sni", ep.serverName)
-		q.add("fp", defaultFP)
+		q.add("fp", ep.fp)
 		q.add("pbk", ep.reality.PublicKey)
 		if ep.reality.ShortID != "" {
 			q.add("sid", ep.reality.ShortID)
@@ -154,10 +164,15 @@ func (ep endpoint) uri() string {
 		q.add("encryption", vlessEncNone)
 		q.add("security", "tls")
 		q.add("sni", ep.serverName)
-		q.add("fp", defaultFP)
+		q.add("fp", ep.fp)
 		q.add("type", xhttpNetwork)
-		q.add("host", ep.xhttpHost)
+		if ep.xhttpHost != "" {
+			q.add("host", ep.xhttpHost)
+		}
 		q.add("path", ep.xhttpPath)
+		if ep.xhttpMode != "" {
+			q.add("mode", ep.xhttpMode)
+		}
 	case model.Hysteria2:
 		// The Hysteria 2 URI scheme writes "host:port/?params"; keep the slash for strict parsers.
 		scheme, path = schemeHy2, "/"

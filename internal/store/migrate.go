@@ -118,6 +118,18 @@ UPDATE sqlite_sequence SET name = 'lines_new' WHERE name = 'lines';
 DROP TABLE lines;
 ALTER TABLE lines_new RENAME TO lines;
 `,
+	// Lines from other servers merged into a visitor's subscription.
+	`
+CREATE TABLE remote_lines (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	client_id  INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+	name       TEXT    NOT NULL,
+	protocol   TEXT    NOT NULL,
+	params     TEXT    NOT NULL,
+	created_at TEXT    NOT NULL
+);
+CREATE INDEX remote_lines_client ON remote_lines (client_id);
+`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

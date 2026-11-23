@@ -268,6 +268,10 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/clients/{id}/reset-traffic", s.authed(s.resetClientTraffic))
 	m.HandleFunc("POST /api/clients/{id}/rotate", s.authed(s.rotateClient))
 	m.HandleFunc("GET /api/clients/{id}/share", s.authed(s.shareClient))
+	m.HandleFunc("GET /api/clients/{id}/remote-lines", s.authed(s.listRemoteLines))
+	m.HandleFunc("POST /api/clients/{id}/remote-lines", s.authed(s.createRemoteLine))
+	m.HandleFunc("PUT /api/clients/{id}/remote-lines/{rid}", s.authed(s.updateRemoteLine))
+	m.HandleFunc("DELETE /api/clients/{id}/remote-lines/{rid}", s.authed(s.deleteRemoteLine))
 
 	m.HandleFunc("GET /api/reach/config", s.authed(s.getReachConfig))
 	m.HandleFunc("PUT /api/reach/config", s.authed(s.putReachConfig))

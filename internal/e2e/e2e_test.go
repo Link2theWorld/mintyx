@@ -289,7 +289,7 @@ func startMihomo(t *testing.T, line model.Line, c model.Client, trustPEM []byte)
 	if bin == "" {
 		t.Skip("MIHOMO_BIN not set")
 	}
-	body, _, err := share.Render(share.FormatMihomo, []model.Line{line}, c, dialHost)
+	body, _, err := share.Render(share.FormatMihomo, []model.Line{line}, nil, c, dialHost)
 	if err != nil {
 		t.Fatalf("share.Render mihomo: %v", err)
 	}

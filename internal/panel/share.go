@@ -142,14 +142,17 @@ func (s *Server) getSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var lines []model.Line
+	var remotes []model.RemoteLine
 	host := ""
 	if lines, err = s.st.ListLines(ctx); err == nil {
-		host, err = s.dialHost(ctx, r)
+		if remotes, err = s.st.ListRemoteLines(ctx, c.ID); err == nil {
+			host, err = s.dialHost(ctx, r)
+		}
 	}
 	var body []byte
 	var ctype string
 	if err == nil {
-		body, ctype, err = share.Render(format, lines, c, host)
+		body, ctype, err = share.Render(format, lines, remotes, c, host)
 	}
 	if err != nil {
 		s.log.Error("panel: render subscription", "err", err)

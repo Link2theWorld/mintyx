@@ -21,8 +21,18 @@ const (
 )
 
 const (
-	selectGroupName = "Proxy"
-	mihomoDirect    = "DIRECT"
+	selectGroupName  = "Proxy"
+	balanceGroupName = "Load Balance"
+	mihomoDirect     = "DIRECT"
+	mihomoReject     = "REJECT"
+	// balanceStrategy keeps every connection to one site (by its registrable domain) on one
+	// server, so sites that tie a session to the visitor's IP do not see it jump around.
+	balanceStrategy = "consistent-hashing"
+	// The client, not the panel, fetches healthCheckURL every healthCheckInterval seconds to
+	// leave out servers that stopped answering; both are the values the mihomo wiki's
+	// load-balance example uses.
+	healthCheckURL      = "https://www.gstatic.com/generate_204"
+	healthCheckInterval = 300
 )
 
 // Omission is an enabled line a subscription format left out, with a reason the UI can show.
@@ -56,12 +66,20 @@ func plan(lines []model.Line, c model.Client, defaultHost string) ([]endpoint, [
 	return eps, om
 }
 
-// Render builds client c's subscription body. A disabled client or no usable lines yields
-// a valid empty subscription; unusable lines are skipped (see Omitted).
-func Render(format Format, lines []model.Line, c model.Client, defaultHost string) ([]byte, string, error) {
+// Render builds client c's subscription body: this server's lines, then remotes, the client's
+// lines on other servers. A disabled client or no usable lines yields a valid empty
+// subscription; unusable lines are skipped (see Omitted), and so are remote lines CheckRemote
+// refuses.
+func Render(format Format, lines []model.Line, remotes []model.RemoteLine, c model.Client, defaultHost string) ([]byte, string, error) {
 	var eps []endpoint
+	merged := false
 	if c.Enabled() {
 		eps, _ = plan(lines, c, defaultHost)
+		for _, r := range remotes {
+			if ep, err := remoteEndpoint(r); err == nil {
+				eps, merged = append(eps, ep), true
+			}
+		}
 	}
 	switch format {
 	case FormatLinks:
@@ -72,7 +90,7 @@ func Render(format Format, lines []model.Line, c model.Client, defaultHost strin
 		body := base64.StdEncoding.EncodeToString([]byte(strings.Join(uris, "\n")))
 		return []byte(body), "text/plain; charset=utf-8", nil
 	case FormatMihomo:
-		body, err := renderMihomo(eps)
+		body, err := renderMihomo(eps, merged)
 		return body, "text/yaml; charset=utf-8", err
 	}
 	return nil, "", fmt.Errorf("unknown format %q", format)
@@ -110,7 +128,8 @@ type mihomoRealityOpts struct {
 
 type mihomoXHTTPOpts struct {
 	Path string `yaml:"path"`
-	Host string `yaml:"host"`
+	Host string `yaml:"host,omitempty"`
+	Mode string `yaml:"mode,omitempty"`
 }
 
 type mihomoProxy struct {
@@ -137,6 +156,10 @@ type mihomoGroup struct {
 	Name    string   `yaml:"name"`
 	Type    string   `yaml:"type"`
 	Proxies []string `yaml:"proxies"`
+	// The rest is for the load-balance group only.
+	Strategy string `yaml:"strategy,omitempty"`
+	URL      string `yaml:"url,omitempty"`
+	Interval int    `yaml:"interval,omitempty"`
 }
 
 type mihomoDoc struct {
@@ -145,20 +168,23 @@ type mihomoDoc struct {
 	Rules   []string      `yaml:"rules"`
 }
 
-func renderMihomo(eps []endpoint) ([]byte, error) {
-	names := uniqueNames(eps, selectGroupName, mihomoDirect, "REJECT")
+// renderMihomo lists every endpoint in a select group. When the subscription merges lines from
+// other servers (balance) and has more than one endpoint, a load-balance group over all of them
+// comes first in the select group, so the client uses it unless the user picks a single line.
+func renderMihomo(eps []endpoint, balance bool) ([]byte, error) {
+	names := uniqueNames(eps, selectGroupName, balanceGroupName, mihomoDirect, mihomoReject)
 	doc := mihomoDoc{Proxies: []mihomoProxy{}, Rules: []string{"MATCH," + selectGroupName}}
 	for i, ep := range eps {
 		p := mihomoProxy{Name: names[i], Server: ep.host, Port: ep.port, UDP: true}
 		switch ep.line.Protocol {
 		case model.VLESSReality:
-			p.Type, p.UUID, p.Network, p.TLS, p.Flow = "vless", ep.secret, realityTCPNet, true, visionFlow
-			p.ServerName, p.ClientFingerprint = ep.serverName, defaultFP
+			p.Type, p.UUID, p.Network, p.TLS, p.Flow = "vless", ep.secret, realityTCPNet, true, ep.flow
+			p.ServerName, p.ClientFingerprint = ep.serverName, ep.fp
 			p.RealityOpts = &mihomoRealityOpts{PublicKey: ep.reality.PublicKey, ShortID: ep.reality.ShortID, SupportX25519MLKEM768: true}
 		case model.VLESSXHTTP:
 			p.Type, p.UUID, p.Network, p.TLS = "vless", ep.secret, xhttpNetwork, true
-			p.ServerName, p.ClientFingerprint = ep.serverName, defaultFP
-			p.XHTTPOpts = &mihomoXHTTPOpts{Path: ep.xhttpPath, Host: ep.xhttpHost}
+			p.ServerName, p.ClientFingerprint = ep.serverName, ep.fp
+			p.XHTTPOpts = &mihomoXHTTPOpts{Path: ep.xhttpPath, Host: ep.xhttpHost, Mode: ep.xhttpMode}
 		case model.Hysteria2:
 			p.Type, p.Password, p.SNI = "hysteria2", ep.secret, ep.serverName
 			if ep.obfsPass != "" {
@@ -167,8 +193,17 @@ func renderMihomo(eps []endpoint) ([]byte, error) {
 		}
 		doc.Proxies = append(doc.Proxies, p)
 	}
-	members := append(names, mihomoDirect)
+	balance = balance && len(names) > 1
+	members := make([]string, 0, len(names)+2)
+	if balance {
+		members = append(members, balanceGroupName)
+	}
+	members = append(append(members, names...), mihomoDirect)
 	doc.Groups = []mihomoGroup{{Name: selectGroupName, Type: "select", Proxies: members}}
+	if balance {
+		doc.Groups = append(doc.Groups, mihomoGroup{Name: balanceGroupName, Type: "load-balance", Proxies: names,
+			Strategy: balanceStrategy, URL: healthCheckURL, Interval: healthCheckInterval})
+	}
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)

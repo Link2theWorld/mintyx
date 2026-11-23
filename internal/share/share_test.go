@@ -230,7 +230,7 @@ func allLines() []model.Line {
 }
 
 func TestRenderLinks(t *testing.T) {
-	body, ctype, err := Render(FormatLinks, allLines(), testClient(), "203.0.113.7")
+	body, ctype, err := Render(FormatLinks, allLines(), nil, testClient(), "203.0.113.7")
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -257,14 +257,14 @@ func TestRenderEmpty(t *testing.T) {
 	off.Disabled = model.DisabledQuota
 	for _, f := range []Format{FormatLinks, FormatMihomo} {
 		t.Run(string(f)+"/disabled client", func(t *testing.T) {
-			body, _, err := Render(f, allLines(), off, "203.0.113.7")
+			body, _, err := Render(f, allLines(), nil, off, "203.0.113.7")
 			if err != nil {
 				t.Fatalf("Render: %v", err)
 			}
 			assertNoProxies(t, f, body)
 		})
 		t.Run(string(f)+"/no lines", func(t *testing.T) {
-			body, _, err := Render(f, nil, testClient(), "203.0.113.7")
+			body, _, err := Render(f, nil, nil, testClient(), "203.0.113.7")
 			if err != nil {
 				t.Fatalf("Render: %v", err)
 			}
@@ -306,7 +306,7 @@ func TestRenderMihomo(t *testing.T) {
 	dup := xhttpTLSLine()
 	dup.Name = "Tokyo"
 	lines = append(lines, dup)
-	body, ctype, err := Render(FormatMihomo, lines, testClient(), "203.0.113.7")
+	body, ctype, err := Render(FormatMihomo, lines, nil, testClient(), "203.0.113.7")
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestRenderSkipsBrokenLineAndReportsIt(t *testing.T) {
 	broken.ID, broken.Name = 5, "Broken"
 	broken.Reality = &model.RealityParams{ServerName: "x"}
 	lines := []model.Line{broken, hy2Line("")}
-	body, _, err := Render(FormatLinks, lines, testClient(), "203.0.113.7")
+	body, _, err := Render(FormatLinks, lines, nil, testClient(), "203.0.113.7")
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestRenderSkipsBrokenLineAndReportsIt(t *testing.T) {
 func TestRenderUnknownFormat(t *testing.T) {
 	for _, f := range []Format{"v2rayng", "clash"} {
 		t.Run(string(f), func(t *testing.T) {
-			body, ctype, err := Render(f, allLines(), testClient(), "h")
+			body, ctype, err := Render(f, allLines(), nil, testClient(), "h")
 			if want := `unknown format "` + string(f) + `"`; err == nil || err.Error() != want || body != nil || ctype != "" {
 				t.Fatalf("Render = %q, %q, %v; want nil body and error %q", body, ctype, err, want)
 			}
@@ -402,7 +402,7 @@ func TestRenderUnknownFormat(t *testing.T) {
 func TestRenderMihomoRenamesLinesClashingWithReservedNames(t *testing.T) {
 	proxy, direct, reject := hy2Line(""), hy2Line(""), hy2Line("")
 	proxy.Name, direct.Name, reject.Name = "Proxy", "DIRECT", "REJECT"
-	body, _, err := Render(FormatMihomo, []model.Line{proxy, direct, reject}, testClient(), "203.0.113.7")
+	body, _, err := Render(FormatMihomo, []model.Line{proxy, direct, reject}, nil, testClient(), "203.0.113.7")
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
