@@ -350,11 +350,15 @@ func newLoginLimiter() *loginLimiter { return &loginLimiter{m: map[string]*attem
 func (l *loginLimiter) blocked(ip string, now time.Time) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if a := l.m[ip]; a != nil && now.Before(a.until) {
-		return a.until.Sub(now)
+	if a, tracked := l.m[ip]; tracked {
+		if now.Before(a.until) {
+			return a.until.Sub(now)
+		}
+		return 0
 	}
 	// Once the table is full further source addresses share the empty key rather than
-	// either growing memory without bound or bypassing the throttle untracked.
+	// either growing memory without bound or bypassing the throttle untracked. An address
+	// that already has its own entry keeps it instead of inheriting the flood's lockout.
 	if a := l.m[""]; a != nil && now.Before(a.until) {
 		return a.until.Sub(now)
 	}

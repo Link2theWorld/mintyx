@@ -176,6 +176,22 @@ func TestLoginLimiterFloodCannotGrowMemoryOrBypassThrottle(t *testing.T) {
 	}
 }
 
+func TestLoginLimiterFloodDoesNotLockOutATrackedAddress(t *testing.T) {
+	l := newLoginLimiter()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	const victim = "198.51.100.7"
+	l.fail(victim, now)
+	for i := 0; i < limiterSweepAt+1000; i++ {
+		l.fail(fmt.Sprintf("2001:db8::%x", i), now)
+	}
+	if d := l.blocked("2001:db8::ffff", now); d <= 0 {
+		t.Fatal("the shared flood bucket is not locked")
+	}
+	if d := l.blocked(victim, now); d != 0 {
+		t.Fatalf("an individually tracked address inherited the flood lockout: %v", d)
+	}
+}
+
 func TestLoginWrongUsername(t *testing.T) {
 	f := newFixture(t, nil)
 	f.setup()
