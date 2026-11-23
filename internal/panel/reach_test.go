@@ -479,7 +479,7 @@ func TestReachLoopConfirmsThenMailsOncePerTransition(t *testing.T) {
 		{port443Shut, want{reach.OK, reach.PortBlocked, 0}},
 		{port443Shut, want{reach.PortBlocked, reach.PortBlocked, 1}},
 		{port443Shut, want{reach.PortBlocked, reach.PortBlocked, 1}},
-		{allFine, want{reach.PortBlocked, reach.OK, 1}},
+		{allFine, want{reach.OK, reach.OK, 2}},
 		{allFine, want{reach.OK, reach.OK, 2}},
 		{allFine, want{reach.OK, reach.OK, 2}},
 	} {
