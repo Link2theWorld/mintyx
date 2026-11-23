@@ -106,14 +106,15 @@ func TestExitLinkToOwnLineIsRefusedAcrossIPSpellings(t *testing.T) {
 	w := f.do("POST", "/api/exits", map[string]any{"name": "loop-v6", "link": realityLink("[2001:db8::1]", 443, "loop-v6")}, withCookie(c))
 	expectError(t, w, http.StatusBadRequest, codeInvalid, "link")
 
-	v4 := realityLine("own-v4", 8443)
+	// REALITY lines are fixed on 443, so the other ports use XHTTP lines; the check compares endpoints, not protocols.
+	v4 := xhttpLine("own-v4", 8443)
 	v4["host"] = "203.0.113.7"
 	expectStatus(t, f.do("POST", "/api/lines", v4, withCookie(c)), http.StatusCreated)
 	w = f.do("POST", "/api/exits", map[string]any{"name": "loop-mapped", "link": realityLink("[::ffff:203.0.113.7]", 8443, "loop-mapped")}, withCookie(c))
 	expectError(t, w, http.StatusBadRequest, codeInvalid, "link")
 
 	expectStatus(t, f.do("PUT", "/api/settings", map[string]any{"publicHost": "[2001:0DB8::a]", "subscriptionBaseUrl": ""}, withCookie(c)), http.StatusOK)
-	f.createLineAt(c, "own-pub", 2053)
+	expectStatus(t, f.do("POST", "/api/lines", xhttpLine("own-pub", 2053), withCookie(c)), http.StatusCreated)
 	w = f.do("POST", "/api/exits", map[string]any{"name": "loop-pub", "link": realityLink("[2001:db8::a]", 2053, "loop-pub")}, withCookie(c))
 	expectError(t, w, http.StatusBadRequest, codeInvalid, "link")
 
