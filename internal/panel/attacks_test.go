@@ -176,6 +176,19 @@ func TestAttacksAreCollectedFromSSHAndXray(t *testing.T) {
 	}
 }
 
+func TestSSHCursorIsNotStoredBeforeTheHits(t *testing.T) {
+	a := newAttackFixture(t)
+	a.log.queued = []string{"Failed password for root from 203.0.113.5 port 40002 ssh2"}
+	a.srv.readSSHLog(context.Background())
+	_, found, err := a.st.GetSetting(context.Background(), settingAttackCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatal("the journal cursor was stored before the hits read from it")
+	}
+}
+
 func TestAttackLookupsRunOnlyWhenTurnedOn(t *testing.T) {
 	a := newAttackFixture(t)
 	a.log.queued = []string{
