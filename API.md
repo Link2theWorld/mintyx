@@ -221,7 +221,7 @@
 {
   "enabled": false,
   "intervalMinutes": 30,   // 10–1440。线路多时实际间隔会自动拉长，见下
-  "confirmRounds": 2,      // 1–10，连续几轮异常才算数；恢复只需一轮
+  "confirmRounds": 2,      // 1–10，异常和恢复都要连续几轮才算数
   "smtp": {
     "host": "", "port": 587, "security": "starttls", // "starttls" | "tls" | "none"
     "username": "",          // 空表示不登录
