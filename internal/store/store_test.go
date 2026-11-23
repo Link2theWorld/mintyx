@@ -699,10 +699,42 @@ func TestMonthlyCycleFieldsAndStartCycle(t *testing.T) {
 	}
 
 	got.QuotaResetDay, got.CycleStart = 0, nil
-	if err := s.UpdateClient(ctx, &got); err != nil {
+	if err := s.UpdateClientWithCycle(ctx, &got); err != nil {
 		t.Fatal(err)
 	}
 	if again, _ := s.GetClient(ctx, c.ID); again.QuotaResetDay != 0 || again.CycleStart != nil || again.UsedDown != 3 {
 		t.Fatalf("after turning the cycle off = %+v, want no cycle and usage kept", again)
+	}
+}
+
+// A profile update is built from the row read before the save. If the quota loop starts a new
+// cycle in between, saving that stale row must not move the cycle back and cause a second reset.
+func TestUpdateClientDoesNotMoveTheCycleBack(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	oct := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	nov := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	c := newClient("race")
+	c.QuotaResetDay, c.CycleStart = 1, &oct
+	if err := s.CreateClient(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := s.GetClient(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started, err := s.StartCycle(ctx, c.ID, nov, true); err != nil || !started {
+		t.Fatalf("StartCycle = %v, %v; want started", started, err)
+	}
+	stale.Name = "renamed"
+	if err := s.UpdateClient(ctx, &stale); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetClient(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CycleStart == nil || !got.CycleStart.Equal(nov) {
+		t.Fatalf("cycle start after the stale update = %v, want %v", got.CycleStart, nov)
 	}
 }

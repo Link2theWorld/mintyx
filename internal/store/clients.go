@@ -49,13 +49,29 @@ func (s *Store) CreateClient(ctx context.Context, c *model.Client) error {
 	return nil
 }
 
-// UpdateClient writes the admin-editable fields only, the cycle settings included. Usage
-// counters belong to AddTraffic/ResetTraffic/StartCycle and Disabled to SetClientDisabled.
+// UpdateClient writes the admin-editable fields only. Usage counters belong to
+// AddTraffic/ResetTraffic/StartCycle, Disabled to SetClientDisabled and the cycle anchor to
+// StartCycle/UpdateClientWithCycle: the row is read before the update is written, so writing an
+// anchor copied from it could overwrite a newer cycle the quota loop started meanwhile.
 func (s *Store) UpdateClient(ctx context.Context, c *model.Client) error {
-	return expectOneRow(s.db.ExecContext(ctx,
-		`UPDATE clients SET name = ?, secret = ?, sub_token = ?, quota_bytes = ?, expires_at = ?, quota_reset_day = ?,
-		 cycle_start = ? WHERE id = ?`,
-		c.Name, c.Secret, c.SubToken, c.QuotaBytes, nullableTime(c.ExpiresAt), c.QuotaResetDay, nullableTime(c.CycleStart), c.ID))
+	return s.updateClient(ctx, c, false)
+}
+
+// UpdateClientWithCycle is UpdateClient for a change that deliberately reanchors the monthly
+// cycle: choosing another reset day, or moving midnight when the time zone changes.
+func (s *Store) UpdateClientWithCycle(ctx context.Context, c *model.Client) error {
+	return s.updateClient(ctx, c, true)
+}
+
+func (s *Store) updateClient(ctx context.Context, c *model.Client, withCycle bool) error {
+	set := `name = ?, secret = ?, sub_token = ?, quota_bytes = ?, expires_at = ?, quota_reset_day = ?`
+	args := []any{c.Name, c.Secret, c.SubToken, c.QuotaBytes, nullableTime(c.ExpiresAt), c.QuotaResetDay}
+	if withCycle {
+		set += `, cycle_start = ?`
+		args = append(args, nullableTime(c.CycleStart))
+	}
+	args = append(args, c.ID)
+	return expectOneRow(s.db.ExecContext(ctx, `UPDATE clients SET `+set+` WHERE id = ?`, args...))
 }
 
 func (s *Store) DeleteClient(ctx context.Context, id int64) error {
