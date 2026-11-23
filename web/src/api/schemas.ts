@@ -307,6 +307,18 @@ export const exitsResponseSchema = z.object({ exits: z.array(exitSchema) });
 export const exitParseSchema = z.object({ name: z.string(), summary: exitSummarySchema });
 export type ExitInput = { name: string; region: string; link: string };
 
+/** A visitor's line on another server, merged into its subscription. The credential stays on the server. */
+export const remoteLineSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  createdAt: z.string(),
+  summary: exitSummarySchema,
+});
+export type RemoteLine = z.infer<typeof remoteLineSchema>;
+export const remoteLinesResponseSchema = z.object({ remoteLines: z.array(remoteLineSchema) });
+/** link "" on update keeps the stored link. */
+export type RemoteLineInput = { name: string; link: string };
+
 export const routingSchema = z.object({
   lines: z.array(z.object({ id: z.number().int(), exitId: z.number().int().nullable() })),
   exits: z.array(z.object({ id: z.number().int(), nextId: z.number().int().nullable() })),

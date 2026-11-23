@@ -111,6 +111,30 @@
 ```
 二维码由前端根据 `uri` 与 `url` 生成。
 
+### 合并其他服务器的线路
+
+访客在其他服务器上的线路，用那台服务器给这位访客的分享链接添加，之后出现在这位访客的订阅里
+（本机线路在前）。只改订阅，不改 Xray 配置，不会重启 Xray；面板不连接这些服务器。
+
+```jsonc
+// RemoteLine
+{
+  "id": 7, "name": "首尔", "createdAt": "…",
+  "summary": { /* 同 Exit 的 summary，不含任何密钥 */ }
+}
+```
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/clients/{id}/remote-lines` | `{"remoteLines": [RemoteLine]}`，按添加顺序。访客不存在时 404 |
+| POST | `/api/clients/{id}/remote-lines` | 请求 `{"name","link"}`，201 RemoteLine。`name` 为空时取链接 `#` 后的备注，再没有就用“协议 地址”。只接受 `vless://`（`type=raw`/`tcp` 配 `security=reality`，或 `type=xhttp` 配 `security=tls`，`encryption=none`）和 `hysteria2://`；证书指纹（`pcs`、`vcn`、`pinSHA256`）、`pqv`、`xtls-rprx-vision-udp443` 不是每种订阅格式都能表达，一律拒绝。错误为 400 `invalid`，`field` 为 `link.<部分>`（如 `link.scheme`、`link.pcs`）；链接其实是本面板自己的线路时 `field` 为 `link`。每位访客最多 32 条 |
+| PUT | `/api/clients/{id}/remote-lines/{rid}` | 请求同上；`link` 为空表示保留原链接 |
+| DELETE | `/api/clients/{id}/remote-lines/{rid}` | 204 |
+
+`{rid}` 不属于这位访客时 404。删除访客时一并删除。更换访客密钥（rotate）不影响这些链接，
+那边的服务器换了密钥要删掉重加。审计动作为 `client.remote-line.create` / `update` / `delete`，
+`target` 是访客名，`detail` 是线路名、协议与地址。
+
 ## 出口与走向
 
 出口是另一台代理服务器，线路的流量可以经它（或一串出口）出网：线路 → 出口 A → 出口 B → 互联网。
@@ -160,6 +184,22 @@
 
 `GET /sub/{token}`，可选 `?format=links|mihomo`，默认 `links`。
 响应带 `Subscription-Userinfo` 头。令牌不存在时 404，响应体为空。
+
+内容是本机已启用且可用的线路，后面接着这位访客合并的其他服务器线路（见上）。停用的访客得到一份空订阅。
+
+- `links`：每条线路一个分享链接，换行分隔后整体 base64。其他服务器的线路按存下的参数重新生成链接，名称用面板里的名称。
+- `mihomo`：`proxies` 列出全部线路，名称重复时加 “ (2)”。代理组 `Proxy`（`select`）列出全部线路和 `DIRECT`，
+  规则只有 `MATCH,Proxy`。合并了其他服务器的线路、且总共不止一条时，再加一个组：
+
+  ```yaml
+  - name: Load Balance
+    type: load-balance
+    strategy: consistent-hashing   # 同一目标（域名按主域）固定走同一条线路
+    url: https://www.gstatic.com/generate_204   # 健康检查由客户端发起
+    interval: 300
+    proxies: [全部线路]
+  ```
+  并把 `Load Balance` 放在 `Proxy` 组的第一项，客户端默认就用它。
 
 ## 引擎与状态
 

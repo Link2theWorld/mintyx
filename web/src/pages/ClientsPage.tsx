@@ -1,4 +1,5 @@
 import {
+  ClusterOutlined,
   DeleteOutlined,
   EditOutlined,
   KeyOutlined,
@@ -26,6 +27,7 @@ import { errorText, isEngineError } from "../lib/errors";
 import { daysUntil, formatBytes, formatDate, formatDateInZone } from "../lib/format";
 import { useIsMobile } from "../lib/useIsMobile";
 import { ClientForm } from "./ClientForm";
+import { RemoteLinesDialog } from "./RemoteLinesDialog";
 import { ShareDialog } from "./ShareDialog";
 
 const stateColor: Record<ClientState, string> = {
@@ -102,6 +104,7 @@ export function ClientsPage() {
   const clients = useClients();
   const [editing, setEditing] = useState<{ client: Client | null } | null>(null);
   const [sharing, setSharing] = useState<Client | null>(null);
+  const [merging, setMerging] = useState<Client | null>(null);
 
   const refresh = () => Promise.all([
     qc.invalidateQueries({ queryKey: keys.clients }),
@@ -156,6 +159,7 @@ export function ClientsPage() {
 
   const menu = (c: Client, status: ClientStatus): MenuProps["items"] => [
     { key: "edit", icon: <EditOutlined />, label: t("common.edit"), onClick: () => setEditing({ client: c }) },
+    { key: "remote", icon: <ClusterOutlined />, label: t("clients.remoteLines"), onClick: () => setMerging(c) },
     status.state === "manual"
       ? { key: "enable", icon: <PlayCircleOutlined />, label: t("clients.enable"), onClick: () => confirm("enable", c) }
       : status.state === "active"
@@ -253,6 +257,7 @@ export function ClientsPage() {
         {editing && <ClientForm client={editing.client} onSubmit={save} onCancel={() => setEditing(null)} />}
       </Drawer>
       <ShareDialog client={sharing} onClose={() => setSharing(null)} />
+      <RemoteLinesDialog client={merging} onClose={() => setMerging(null)} />
     </>
   );
 }

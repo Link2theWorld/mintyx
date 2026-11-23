@@ -22,6 +22,8 @@ import {
   reachConfigSchema,
   reachStatusSchema,
   reachTestEmailSchema,
+  remoteLineSchema,
+  remoteLinesResponseSchema,
   sessionSchema,
   settingsSchema,
   shareSchema,
@@ -37,6 +39,7 @@ import {
   type Region,
   type ReachConfigInput,
   type ReachSmtpInput,
+  type RemoteLineInput,
   type Settings,
 } from "./schemas";
 
@@ -173,6 +176,13 @@ export const api = {
   resetClientTraffic: (id: number) => request("POST", `/api/clients/${id}/reset-traffic`, null),
   rotateClient: (id: number) => request("POST", `/api/clients/${id}/rotate`, null),
   share: (id: number) => request("GET", `/api/clients/${id}/share`, shareSchema),
+  remoteLines: async (clientId: number) =>
+    (await request("GET", `/api/clients/${clientId}/remote-lines`, remoteLinesResponseSchema)).remoteLines,
+  createRemoteLine: (clientId: number, r: RemoteLineInput) =>
+    request("POST", `/api/clients/${clientId}/remote-lines`, remoteLineSchema, r),
+  updateRemoteLine: (clientId: number, id: number, r: RemoteLineInput) =>
+    request("PUT", `/api/clients/${clientId}/remote-lines/${id}`, remoteLineSchema, r),
+  deleteRemoteLine: (clientId: number, id: number) => request("DELETE", `/api/clients/${clientId}/remote-lines/${id}`, null),
 
   engine: () => request("GET", "/api/engine", engineSchema),
   restartEngine: () => request("POST", "/api/engine/restart", null),

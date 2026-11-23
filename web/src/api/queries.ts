@@ -6,6 +6,7 @@ export const keys = {
   lines: ["lines"] as const,
   clients: ["clients"] as const,
   share: (id: number) => ["share", id] as const,
+  remoteLines: (clientId: number) => ["clients", clientId, "remote-lines"] as const,
   engine: ["engine"] as const,
   engineLogs: ["engine", "logs"] as const,
   status: ["status"] as const,
@@ -32,6 +33,8 @@ export const useLines = () => useQuery({ queryKey: keys.lines, queryFn: api.line
 export const useClients = () => useQuery({ queryKey: keys.clients, queryFn: api.clients, refetchInterval: 30_000 });
 export const useShare = (id: number | null) =>
   useQuery({ queryKey: keys.share(id ?? -1), queryFn: () => api.share(id ?? -1), enabled: id !== null, gcTime: 0 });
+export const useRemoteLines = (clientId: number | null) =>
+  useQuery({ queryKey: keys.remoteLines(clientId ?? -1), queryFn: () => api.remoteLines(clientId ?? -1), enabled: clientId !== null });
 export const useEngine = () => useQuery({ queryKey: keys.engine, queryFn: api.engine, refetchInterval: 5_000 });
 export const useEngineLogs = () => useQuery({ queryKey: keys.engineLogs, queryFn: api.engineLogs, refetchInterval: 5_000 });
 export const useStatus = () => useQuery({ queryKey: keys.status, queryFn: api.status, refetchInterval: 15_000 });

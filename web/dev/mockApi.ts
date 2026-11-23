@@ -51,6 +51,12 @@ const state = {
     { id: 2, name: "首尔落地", region: "kr", nextId: null, createdAt: iso(-3 * DAY), summary: { protocol: "vless", host: "198.51.100.8", port: 443, network: "raw", security: "reality", serverName: "www.samsung.com", flow: "xtls-rprx-vision", method: "", auth: false, obfs: false, pinned: false, plaintext: false, udp: false } },
     { id: 3, name: "新加坡 HY2", region: "sg", nextId: null, createdAt: iso(-1 * DAY), summary: { protocol: "hysteria2", host: "sg.example.net", port: 443, network: "", security: "tls", serverName: "sg.example.net", flow: "", method: "", auth: false, obfs: true, pinned: false, plaintext: false, udp: true } },
   ] as Json[],
+  // Client id -> its lines on other servers (API.md: /api/clients/{id}/remote-lines).
+  remoteLines: {
+    1: [
+      { id: 1, name: "首尔", createdAt: iso(-2 * DAY), summary: { protocol: "vless", host: "198.51.100.30", port: 443, network: "raw", security: "reality", serverName: "www.snu.ac.kr", flow: "xtls-rprx-vision", method: "", auth: false, obfs: false, pinned: false, plaintext: false, udp: false } },
+    ],
+  } as Record<number, Json[]>,
   layout: {} as Json,
   settings: { publicHost: "vps.example.com", subscriptionBaseUrl: "", timeZone: "Asia/Seoul", serverRegion: "jp" },
   reach: {
@@ -212,6 +218,33 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     const b = await readBody(req);
     state.clients.push(withCycle({ ...b, id: state.nextId++, disabled: "", usedUp: 0, usedDown: 0, createdAt: new Date().toISOString() }));
     return send(res, 201, state.clients[state.clients.length - 1]);
+  }
+  const remoteMatch = /^\/api\/clients\/(\d+)\/remote-lines(?:\/(\d+))?$/.exec(path);
+  if (remoteMatch) {
+    const clientId = Number(remoteMatch[1]);
+    if (!state.clients.some((x) => x.id === clientId)) return fail(res, 404, "not_found", "no such client");
+    const list = (state.remoteLines[clientId] ??= []);
+    if (!remoteMatch[2]) {
+      if (method === "GET") return send(res, 200, { remoteLines: list });
+      const b = await readBody(req);
+      const link = typeof b.link === "string" ? b.link.trim() : "";
+      if (!link) return fail(res, 400, "invalid", "paste the other server's share link for this visitor", "link");
+      const m = /^(vless|hysteria2|hy2):\/\/[^@]+@([^:/?#]+):(\d+)/.exec(link);
+      if (!m) return fail(res, 400, "invalid", "only vless (reality or xhttp) and hysteria2 lines can join a subscription", "link.scheme");
+      const hy = m[1] !== "vless";
+      const xhttp = link.includes("type=xhttp");
+      const r = { id: state.nextId++, name: (typeof b.name === "string" && b.name.trim()) || decodeURIComponent(link.split("#")[1] ?? "") || `${hy ? "HYSTERIA2" : "VLESS"} ${String(m[2])}`, createdAt: new Date().toISOString(),
+        summary: { protocol: hy ? "hysteria2" : "vless", host: m[2], port: Number(m[3]), network: hy ? "" : xhttp ? "xhttp" : "raw", security: hy || xhttp ? "tls" : "reality", serverName: "", flow: "", method: "", auth: false, obfs: link.includes("obfs="), pinned: false, plaintext: false, udp: hy } };
+      list.push(r);
+      return send(res, 201, r);
+    }
+    const id = Number(remoteMatch[2]);
+    const r = list.find((x) => x.id === id);
+    if (!r) return fail(res, 404, "not_found", "no such remote line");
+    if (method === "DELETE") { state.remoteLines[clientId] = list.filter((x) => x.id !== id); return send(res, 204); }
+    const b = await readBody(req);
+    if (typeof b.name === "string" && b.name.trim()) r.name = b.name.trim();
+    return send(res, 200, r);
   }
   const clientMatch = /^\/api\/clients\/(\d+)(?:\/([a-z-]+))?$/.exec(path);
   if (clientMatch) {
