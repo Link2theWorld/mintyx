@@ -387,6 +387,36 @@ func TestXrayRefusalRollsBackWiringAndLinks(t *testing.T) {
 	}
 }
 
+// When a link replacement is refused by Xray, the whole edit — link, name and region — is rolled
+// back so the 400 "nothing was changed" response stays truthful, including when the name came from
+// the refused link itself. A name/region-only edit (empty link) is kept; see TestEnablingALineXrayRefusesIsRolledBack.
+func TestRefusedExitLinkRollbackUndoesWholeEdit(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	line := f.createLineAt(c, "entry", 443)
+	a := f.createExit(c, "A", realityLink("203.0.113.7", 443, "A"))
+	expectStatus(t, f.do("PUT", "/api/routing", map[string]any{"lines": []any{map[string]any{"id": line.ID, "exitId": a.ID}}}, withCookie(c)), http.StatusOK)
+
+	f.eng.refuseWhen(func(ctx context.Context) (string, bool) {
+		e, _ := f.st.GetExit(ctx, a.ID)
+		return "invalid encryption", e.Params.Host == "198.51.100.77"
+	})
+	for _, body := range []map[string]any{
+		{"name": "A renamed", "region": "kr", "link": realityLink("198.51.100.77", 443, "A renamed")},
+		{"name": "", "region": "kr", "link": realityLink("198.51.100.77", 443, "FromBadLink")},
+	} {
+		w := f.do("PUT", fmt.Sprintf("/api/exits/%d", a.ID), body, withCookie(c))
+		expectError(t, w, http.StatusBadRequest, codeInvalid, "link")
+		e, err := f.st.GetExit(t.Context(), a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.Params.Host != "203.0.113.7" || e.Name != "A" || e.Region != "jp" {
+			t.Fatalf("refused link replacement left partial changes: %+v; want host 203.0.113.7, name A, region jp", e)
+		}
+	}
+}
+
 // A disabled line may be wired to an exit without Xray seeing it; enabling the line later is
 // where Xray refuses, and that change must not be kept either. A rename alone is kept.
 func TestEnablingALineXrayRefusesIsRolledBack(t *testing.T) {

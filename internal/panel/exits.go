@@ -291,9 +291,11 @@ func (s *Server) updateExit(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := context.WithoutCancel(r.Context())
 	syncErr := s.syncLocked(ctx)
+	// A name/region-only edit cannot be what Xray refused (neither is in the config), so only
+	// link replacements roll back. When one does, the whole edit is undone so the 400 "nothing
+	// was changed" response stays truthful and the old link is not left with the refused link's
+	// name or region.
 	if params != nil && errors.Is(syncErr, ErrConfigRejected) {
-		// A wired exit whose new link Xray refuses goes back to the link it had. A rename
-		// cannot be what Xray refused (names are not in the config), so it is kept.
 		undone, err := s.undoRefused(ctx, wasRefused,
 			func(ctx context.Context) error { return s.st.UpdateExit(ctx, &before) },
 			func(ctx context.Context) error { return s.st.UpdateExit(ctx, &e) })
