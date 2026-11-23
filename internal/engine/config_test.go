@@ -195,7 +195,7 @@ func TestBuildConfigStatsAPIAndRouting(t *testing.T) {
 	assertEqual(t, "api", cfg["api"], jsonObj{"tag": "api", "services": []any{"HandlerService", "StatsService"}})
 	assertEqual(t, "stats", cfg["stats"], jsonObj{})
 	assertEqual(t, "policy", cfg["policy"], jsonObj{"levels": jsonObj{"0": jsonObj{
-		"statsUserUplink": true, "statsUserDownlink": true,
+		"connIdle": float64(180), "statsUserUplink": true, "statsUserDownlink": true,
 	}}})
 	assertEqual(t, "api inbound", inboundByTag(t, cfg, "api"), jsonObj{
 		"tag": "api", "listen": "127.0.0.1", "port": float64(10085),
@@ -336,6 +336,25 @@ func TestBuildConfigClientAndOptionErrors(t *testing.T) {
 	_, err = BuildConfig(nil, nil, nil, Options{APIPort: 1, LogLevel: "loud"})
 	if !errors.As(err, &oe) || oe.Field != "LogLevel" {
 		t.Errorf("bad log level: err = %v, want OptionsError on LogLevel", err)
+	}
+	_, err = BuildConfig(nil, nil, nil, Options{APIPort: 1, ConnIdle: -1})
+	if !errors.As(err, &oe) || oe.Field != "ConnIdle" {
+		t.Errorf("negative conn idle: err = %v, want OptionsError on ConnIdle", err)
+	}
+}
+
+func TestBuildConfigConnIdle(t *testing.T) {
+	out, err := BuildConfig(nil, nil, nil, Options{APIPort: 10085, ConnIdle: 600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg jsonObj
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	level := at(t, cfg, "policy", "levels", "0").(jsonObj)
+	if level["connIdle"] != float64(600) {
+		t.Errorf("connIdle = %v, want 600 from Options", level["connIdle"])
 	}
 }
 

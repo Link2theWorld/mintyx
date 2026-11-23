@@ -18,6 +18,10 @@ const (
 
 	vlessVisionFlow = "xtls-rprx-vision"
 	defaultLogLevel = "warning"
+	// defaultConnIdle is policy.levels.0.connIdle in seconds. Xray's own default keeps an idle
+	// connection open for 300s; closing it sooner frees the server's sockets and keeps clients from
+	// holding long-lived quiet tunnels that stand out.
+	defaultConnIdle = 180
 )
 
 // Options carries the panel-wide settings that are not part of any line.
@@ -26,6 +30,9 @@ type Options struct {
 	APIPort int
 	// LogLevel is Xray's log.loglevel: debug, info, warning, error or none. Empty means warning.
 	LogLevel string
+	// ConnIdle is how many seconds a connection may stay idle before Xray closes it
+	// (policy connIdle). Zero means defaultConnIdle.
+	ConnIdle int
 }
 
 // APIAddr is the host:port the stats query and other API clients dial.
@@ -108,6 +115,13 @@ func BuildConfig(lines []model.Line, clients []model.Client, exits []model.Exit,
 	if !validLogLevels[logLevel] {
 		return nil, &OptionsError{Field: "LogLevel", Problem: fmt.Sprintf("unknown level %q", logLevel)}
 	}
+	connIdle := opt.ConnIdle
+	if connIdle == 0 {
+		connIdle = defaultConnIdle
+	}
+	if connIdle < 0 {
+		return nil, &OptionsError{Field: "ConnIdle", Problem: fmt.Sprintf("%d is not a number of seconds", opt.ConnIdle)}
+	}
 
 	active := enabledClients(clients)
 	for _, c := range active {
@@ -157,6 +171,7 @@ func BuildConfig(lines []model.Line, clients []model.Client, exits []model.Exit,
 		"stats": obj{},
 		"policy": obj{
 			"levels": obj{"0": obj{
+				"connIdle":          connIdle,
 				"statsUserUplink":   true,
 				"statsUserDownlink": true,
 			}},

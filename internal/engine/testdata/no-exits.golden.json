@@ -175,6 +175,7 @@
   "policy": {
     "levels": {
       "0": {
+        "connIdle": 180,
         "statsUserDownlink": true,
         "statsUserUplink": true
       }
