@@ -178,12 +178,13 @@ func (p *fakePorts) callsMade() []portsCall {
 }
 
 type fixture struct {
-	t     *testing.T
-	srv   *Server
-	st    *store.Store
-	eng   *fakeEngine
-	ports *fakePorts
-	clock *time.Time
+	t      *testing.T
+	srv    *Server
+	st     *store.Store
+	eng    *fakeEngine
+	ports  *fakePorts
+	clock  *time.Time
+	dbPath string
 }
 
 const (
@@ -199,7 +200,8 @@ var testStatic = fstest.MapFS{
 
 func newFixture(t *testing.T, mod func(*Config)) *fixture {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "panel.db"))
+	dbPath := filepath.Join(t.TempDir(), "panel.db")
+	st, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +227,7 @@ func newFixture(t *testing.T, mod func(*Config)) *fixture {
 	}
 	srv.bcryptCost = bcrypt.MinCost
 	clock := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	f := &fixture{t: t, srv: srv, st: st, eng: eng, ports: ports, clock: &clock}
+	f := &fixture{t: t, srv: srv, st: st, eng: eng, ports: ports, clock: &clock, dbPath: dbPath}
 	srv.now = func() time.Time { return *f.clock }
 	return f
 }

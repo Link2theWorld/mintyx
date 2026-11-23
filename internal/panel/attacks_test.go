@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -186,6 +187,45 @@ func TestSSHCursorIsNotStoredBeforeTheHits(t *testing.T) {
 	}
 	if found {
 		t.Fatal("the journal cursor was stored before the hits read from it")
+	}
+}
+
+func TestAFailedStoreNeitherLosesXrayHitsNorCountsSSHHitsTwice(t *testing.T) {
+	a := newAttackFixture(t)
+	sshLine := "Failed password for root from 203.0.113.5 port 40002 ssh2"
+	a.log.queued = []string{sshLine}
+	a.col.Xray(*a.clock, "2026/06/01 12:00:00.000000 [Info] transport/internet/tcp: REALITY: processed invalid connection from 198.51.100.9:5000: failed to read client hello")
+
+	// Make only the attack write fail, while settings reads and later writes keep working.
+	raw, err := sql.Open("sqlite", a.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`CREATE TRIGGER fail_attack_recording BEFORE INSERT ON attackers BEGIN
+		SELECT RAISE(FAIL, 'injected attack store failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.runner.Tick(context.Background()); err == nil {
+		t.Fatal("tick with a failing attack store returned nil")
+	}
+	if _, err := raw.Exec(`DROP TRIGGER fail_attack_recording`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Because the cursor never moved, the journal hands the same line to the next tick.
+	a.log.queued = []string{sshLine}
+	a.tick()
+	s := a.summary()
+	if s.Hits != 2 || s.Sources != 2 {
+		t.Fatalf("summary after the retry = %+v; want one SSH hit and one Xray hit from two sources", s)
+	}
+	kinds := map[string]int64{}
+	for _, k := range s.Kinds {
+		kinds[k.Kind] = k.Hits
+	}
+	if kinds["ssh_login"] != 1 || kinds["line_probe"] != 1 {
+		t.Fatalf("kind totals after the retry = %+v; want one of each, no duplicate SSH hit", kinds)
 	}
 }
 

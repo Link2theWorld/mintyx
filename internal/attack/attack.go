@@ -240,6 +240,42 @@ func (c *Collector) rememberConn(conn string) {
 	c.conns[conn] = true
 }
 
+// Restore puts a drained batch back when storing it failed. Samples from the older restored
+// batch stay ahead of anything collected meanwhile, and every count is kept unless the pending
+// memory cap has been reached in the meantime.
+func (c *Collector) Restore(hits []model.AttackHit, trusted []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, h := range hits {
+		key := hitKey{ip: h.IP, day: h.Day, kind: Kind(h.Kind)}
+		cur := c.hits[key]
+		if cur == nil {
+			if len(c.hits) >= maxPending {
+				continue
+			}
+			h.Samples = append([]model.AttackSample(nil), h.Samples...)
+			copy := h
+			c.hits[key] = &copy
+			continue
+		}
+		cur.Count += h.Count
+		if h.First.Before(cur.First) {
+			cur.First = h.First
+		}
+		if h.Last.After(cur.Last) {
+			cur.Last = h.Last
+		}
+		samples := append(append([]model.AttackSample(nil), h.Samples...), cur.Samples...)
+		if len(samples) > MaxSamples {
+			samples = samples[len(samples)-MaxSamples:]
+		}
+		cur.Samples = samples
+	}
+	for _, ip := range trusted {
+		c.trusted[ip] = true
+	}
+}
+
 // Drain returns everything collected since the last call: the tallies, and the addresses that
 // logged in with a key and so are the owner's own.
 func (c *Collector) Drain() (hits []model.AttackHit, trusted []string) {

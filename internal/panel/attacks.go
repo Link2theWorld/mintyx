@@ -397,8 +397,14 @@ func (s *Server) readSSHLog(ctx context.Context) (sshCursorUpdate, error) {
 
 func (s *Server) storeAttacks(ctx context.Context) error {
 	hits, trusted := s.attacks.Drain()
-	// Already drained, so a shutdown must not lose them.
-	return s.st.RecordAttacks(context.WithoutCancel(ctx), hits, trusted, s.now())
+	// Already drained, so a shutdown must not lose them. A real store failure is different:
+	// put the batch back. SSH lines are not read again thanks to the collector's connection
+	// deduplication, while Xray lines have no journal cursor that could replay them.
+	err := s.st.RecordAttacks(context.WithoutCancel(ctx), hits, trusted, s.now())
+	if err != nil {
+		s.attacks.Restore(hits, trusted)
+	}
+	return err
 }
 
 func (s *Server) pruneAttacks(ctx context.Context) error {
