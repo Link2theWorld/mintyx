@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,12 +70,70 @@ func TestFastest(t *testing.T) {
 	}
 	check := func(_ context.Context, host string) Result { return results[host] }
 
-	got, ok := Fastest(context.Background(), []string{"slow.test", "broken.test", "fast.test"}, check)
+	got, ok := Fastest(context.Background(), []string{"slow.test", "broken.test", "fast.test"}, check, nil)
 	if !ok || got != "fast.test" {
 		t.Fatalf("Fastest = %q, %v; want fast.test: the quickest usable site, not the quickest reply", got, ok)
 	}
-	if got, ok := Fastest(context.Background(), []string{"broken.test"}, check); ok {
+	if got, ok := Fastest(context.Background(), []string{"broken.test"}, check, nil); ok {
 		t.Fatalf("Fastest = %q, true with no usable site; want false", got)
+	}
+}
+
+func TestFastestPicksAtRandomAmongSitesNearTheQuickest(t *testing.T) {
+	results := map[string]Result{
+		"fast.test":   {OK: true, Latency: 20 * time.Millisecond},
+		"near.test":   {OK: true, Latency: 25 * time.Millisecond},
+		"edge.test":   {OK: true, Latency: 30 * time.Millisecond}, // exactly 1.5x: still near
+		"slow.test":   {OK: true, Latency: 31 * time.Millisecond},
+		"broken.test": {Latency: time.Millisecond, Problem: "no TLS 1.3"},
+	}
+	check := func(_ context.Context, host string) Result { return results[host] }
+	hosts := []string{"slow.test", "broken.test", "edge.test", "near.test", "fast.test"}
+
+	// The near sites are offered quickest first, so the random index names one of them.
+	for i, want := range []string{"fast.test", "near.test", "edge.test"} {
+		var asked []int
+		intn := func(n int) int {
+			asked = append(asked, n)
+			if len(asked) == 1 {
+				return i
+			}
+			return 0
+		}
+		got, ok := Fastest(context.Background(), hosts, check, intn)
+		if !ok || got != want {
+			t.Fatalf("Fastest with random index %d = %q, %v; want %s", i, got, ok, want)
+		}
+		if asked[0] != 3 {
+			t.Fatalf("first random draw was out of %d sites, want 3: fast, near and edge", asked[0])
+		}
+	}
+
+	// With the real source, only the near sites ever come up, and each of them does.
+	seen := map[string]bool{}
+	for range 200 {
+		got, _ := Fastest(context.Background(), hosts, check, nil)
+		seen[got] = true
+	}
+	if len(seen) != 3 || !seen["fast.test"] || !seen["near.test"] || !seen["edge.test"] {
+		t.Fatalf("picked %v over 200 runs, want exactly fast, near and edge", seen)
+	}
+}
+
+func TestShortlistPutsTheNearSitesFirstThenTheRestByLatency(t *testing.T) {
+	ranked := []Result{
+		{Host: "a", Latency: 10 * time.Millisecond},
+		{Host: "b", Latency: 12 * time.Millisecond},
+		{Host: "c", Latency: 40 * time.Millisecond},
+		{Host: "d", Latency: 90 * time.Millisecond},
+	}
+	last := func(n int) int { return n - 1 }
+	got := Shortlist(ranked, last)
+	if want := []string{"b", "a", "c", "d"}; !slices.Equal(got, want) {
+		t.Fatalf("Shortlist = %v, want %v", got, want)
+	}
+	if got := Shortlist(nil, last); len(got) != 0 {
+		t.Fatalf("Shortlist(nil) = %v, want nothing", got)
 	}
 }
 
@@ -109,11 +168,28 @@ func TestCoverSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := coverSite(context.Background(), tt.region, usable(tt.hosts))
+			list, err := candidates(context.Background(), tt.region, usable(tt.hosts), func(int) int { return 0 })
+			got := ""
+			if len(list) > 0 {
+				got = list[0]
+			}
 			if err != nil || got != tt.want {
-				t.Fatalf("coverSite(%q) = %q, %v; want %q", tt.region, got, err, tt.want)
+				t.Fatalf("candidates(%q) start with %q, %v; want %q", tt.region, got, err, tt.want)
 			}
 		})
+	}
+}
+
+func TestCandidatesListTheRegionBeforeTheFallback(t *testing.T) {
+	a, b, global := regionSites["jp"][0], regionSites["jp"][1], GlobalSites[0]
+	hosts := map[string]time.Duration{a: 50 * time.Millisecond, b: 300 * time.Millisecond, global: 5 * time.Millisecond}
+	check := func(_ context.Context, host string) Result {
+		latency, ok := hosts[host]
+		return Result{Host: host, OK: ok, Latency: latency}
+	}
+	got, err := candidates(context.Background(), "jp", check, func(int) int { return 0 })
+	if want := []string{a, b, global}; err != nil || !slices.Equal(got, want) {
+		t.Fatalf("candidates(jp) = %v, %v; want %v", got, err, want)
 	}
 }
 
@@ -122,8 +198,8 @@ func TestCoverSiteRejectsAnUnknownRegionWithoutProbing(t *testing.T) {
 		t.Errorf("probed %s for a region that does not exist", host)
 		return Result{Host: host}
 	}
-	got, err := coverSite(context.Background(), "mars", check)
-	if got != "" || !errors.Is(err, ErrUnknownRegion) {
+	got, err := candidates(context.Background(), "mars", check, nil)
+	if got != nil || !errors.Is(err, ErrUnknownRegion) {
 		t.Fatalf("coverSite(mars) = %q, %v; want ErrUnknownRegion so the API can name the bad field", got, err)
 	}
 }
