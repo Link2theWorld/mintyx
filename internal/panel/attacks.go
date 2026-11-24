@@ -67,12 +67,13 @@ type sshCursorUpdate struct {
 
 // attackState is what the collector loop last ran into, for the status the page shows.
 type attackState struct {
-	mu          sync.Mutex
-	sshLog      string
-	backlog     time.Duration
-	lookupError string
-	pausedUntil time.Time
-	prunedAt    time.Time
+	mu            sync.Mutex
+	sshLog        string
+	backlog       time.Duration
+	pendingCursor *string
+	lookupError   string
+	pausedUntil   time.Time
+	prunedAt      time.Time
 }
 
 type attackConfigDTO struct {
@@ -363,13 +364,22 @@ func (s *Server) readSSHLog(ctx context.Context) (sshCursorUpdate, error) {
 	st := &s.attackState
 	st.mu.Lock()
 	backlog := st.backlog
+	var pendingCursor *string
+	if st.pendingCursor != nil {
+		pending := *st.pendingCursor
+		pendingCursor = &pending
+	}
 	st.mu.Unlock()
 	if backlog == 0 {
 		backlog = attackFirstBacklog
 	}
-	cursor, _, err := s.st.GetSetting(ctx, settingAttackCursor)
+	dbCursor, _, err := s.st.GetSetting(ctx, settingAttackCursor)
 	if err != nil {
 		return sshCursorUpdate{}, err
+	}
+	cursor := dbCursor
+	if pendingCursor != nil {
+		cursor = *pendingCursor
 	}
 	next, err := s.sshLog(ctx, cursor, backlog, s.attacks.SSH)
 
@@ -389,7 +399,7 @@ func (s *Server) readSSHLog(ctx context.Context) (sshCursorUpdate, error) {
 		st.backlog = attackResyncBacklog
 	}
 	st.mu.Unlock()
-	return sshCursorUpdate{value: next, save: next != cursor}, err
+	return sshCursorUpdate{value: next, save: next != dbCursor || pendingCursor != nil}, err
 }
 
 func (s *Server) storeAttacks(ctx context.Context) error {
@@ -397,10 +407,14 @@ func (s *Server) storeAttacks(ctx context.Context) error {
 }
 
 func (s *Server) storeAttacksWithCursor(ctx context.Context, cursor sshCursorUpdate) error {
+	st := &s.attackState
+	st.mu.Lock()
+	if !cursor.save && st.pendingCursor != nil {
+		cursor = sshCursorUpdate{value: *st.pendingCursor, save: true}
+	}
 	hits, trusted := s.attacks.Drain()
 	// Already drained, so a shutdown must not lose them. A real store failure is different:
-	// put the batch back. SSH lines are not read again thanks to the collector's connection
-	// deduplication, while Xray lines have no journal cursor that could replay them.
+	// put the batch back and keep the cursor so the next read resumes after these SSH lines.
 	key, value := "", ""
 	if cursor.save {
 		key, value = settingAttackCursor, cursor.value
@@ -408,7 +422,14 @@ func (s *Server) storeAttacksWithCursor(ctx context.Context, cursor sshCursorUpd
 	err := s.st.RecordAttacksAndSetting(context.WithoutCancel(ctx), hits, trusted, s.now(), key, value)
 	if err != nil {
 		s.attacks.Restore(hits, trusted)
+		if cursor.save {
+			pending := cursor.value
+			st.pendingCursor = &pending
+		}
+	} else if cursor.save {
+		st.pendingCursor = nil
 	}
+	st.mu.Unlock()
 	return err
 }
 

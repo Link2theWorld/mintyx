@@ -20,6 +20,8 @@ import (
 type fakeSSHLog struct {
 	mu       sync.Mutex
 	queued   []string
+	replay   []string
+	replayAt string
 	err      error
 	cursors  []string
 	backlogs []time.Duration
@@ -33,10 +35,14 @@ func (l *fakeSSHLog) read(_ context.Context, cursor string, backlog time.Duratio
 	if l.err != nil {
 		return cursor, l.err
 	}
-	for _, m := range l.queued {
+	messages := append([]string(nil), l.queued...)
+	if cursor == l.replayAt {
+		messages = append(messages, l.replay...)
+	}
+	for _, m := range messages {
 		fn(l.at, m)
 	}
-	if len(l.queued) == 0 {
+	if len(messages) == 0 {
 		return cursor, nil
 	}
 	l.queued = nil
@@ -229,6 +235,78 @@ func TestAFailedStoreNeitherLosesXrayHitsNorCountsSSHHitsTwice(t *testing.T) {
 	}
 }
 
+func TestAFailedStoreDoesNotDuplicatePortlessSSHHits(t *testing.T) {
+	a := newAttackFixture(t)
+	sshLine := "Timeout before authentication for connection from 203.0.113.5 to 10.0.0.4, pid = 12341"
+	a.log.replay = []string{sshLine}
+
+	raw, err := sql.Open("sqlite", a.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`CREATE TRIGGER fail_attack_recording BEFORE INSERT ON attackers BEGIN
+		SELECT RAISE(FAIL, 'injected attack store failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.runner.Tick(context.Background()); err == nil {
+		t.Fatal("tick with a failing attack store returned nil")
+	}
+	if _, err := raw.Exec(`DROP TRIGGER fail_attack_recording`); err != nil {
+		t.Fatal(err)
+	}
+
+	// This journal event has no port, so the collector cannot deduplicate it by connection.
+	// The fake journal only replays it when reading from the old cursor.
+	a.tick()
+	if s := a.summary(); s.Hits != 1 || s.Sources != 1 {
+		t.Fatalf("summary after retry = %+v; want the portless SSH hit exactly once", s)
+	}
+	if cursor, found, err := a.st.GetSetting(context.Background(), settingAttackCursor); err != nil || !found || cursor != "+" {
+		t.Fatalf("stored cursor = %q, found %v, err %v; want +", cursor, found, err)
+	}
+}
+
+func TestShutdownFlushStoresPendingAttackCursor(t *testing.T) {
+	a := newAttackFixture(t)
+	sshLine := "Timeout before authentication for connection from 203.0.113.5 to 10.0.0.4, pid = 12341"
+	a.log.replay = []string{sshLine}
+
+	raw, err := sql.Open("sqlite", a.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`CREATE TRIGGER fail_attack_recording BEFORE INSERT ON attackers BEGIN
+		SELECT RAISE(FAIL, 'injected attack store failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.runner.Tick(context.Background()); err == nil {
+		t.Fatal("tick with a failing attack store returned nil")
+	}
+	if _, err := raw.Exec(`DROP TRIGGER fail_attack_recording`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.srv.storeAttacks(context.Background()); err != nil {
+		t.Fatalf("shutdown flush: %v", err)
+	}
+	if cursor, found, err := a.st.GetSetting(context.Background(), settingAttackCursor); err != nil || !found || cursor != "+" {
+		t.Fatalf("stored cursor = %q, found %v, err %v; want +", cursor, found, err)
+	}
+
+	// A new collector represents a process restart; the saved cursor must resume after the
+	// already-flushed journal entry rather than counting it again.
+	a.srv.attacks = attack.NewCollector()
+	a.tick()
+	if s := a.summary(); s.Hits != 1 || s.Sources != 1 {
+		t.Fatalf("summary after restart tick = %+v; want the flushed SSH hit exactly once", s)
+	}
+	if got := a.log.cursors[len(a.log.cursors)-1]; got != "+" {
+		t.Fatalf("restart journal cursor = %q, want +", got)
+	}
+}
+
 // Storing the hits and advancing the journal cursor are one atomic outcome: if the cursor
 // write fails after the hits commit, a restart before the retry loses the connection dedupe
 // memory and the replayed journal must not count them again.
@@ -254,9 +332,10 @@ func TestAFailedCursorWriteDoesNotDuplicateStoredHitsAfterARestart(t *testing.T)
 		t.Fatal(err)
 	}
 
-	// A restart before the retry loses the collector's in-memory connection deduplication.
-	// Since the cursor is still at its old position, the journal hands the line back.
+	// A restart loses the in-memory pending cursor. Since the transaction rolled back, the
+	// database cursor is still at its old position and the journal hands the line back.
 	a.srv.attacks = attack.NewCollector()
+	a.srv.attackState.pendingCursor = nil
 	a.log.queued = []string{sshLine}
 	a.tick()
 	if s := a.summary(); s.Hits != 1 || s.Sources != 1 {
