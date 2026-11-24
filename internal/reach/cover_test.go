@@ -152,6 +152,26 @@ func TestCheckCover(t *testing.T) {
 	}
 }
 
+func TestCheckCoverAAAALookupGetsFreshDeadline(t *testing.T) {
+	api := &coverAPI{bodies: map[string]string{
+		"d1": `{"status":"in-progress","results":[{"probe":{"country":"CN"},"result":{"status":"in-progress"}}]}`,
+		"d2": dnsBodyType("AAAA", "240e::1"),
+	}}
+	c := newTestClient(t, api.handler(t))
+	c.Deadline = 50 * time.Millisecond
+
+	got, err := c.CheckCover(context.Background(), "cover.example")
+	if err != nil {
+		t.Fatalf("CheckCover: %v", err)
+	}
+	if got.OK || !strings.Contains(got.Problem, "240e::1") {
+		t.Fatalf("CheckCover = %+v, want the mainland AAAA answer to turn the site down", got)
+	}
+	if len(api.created) != 2 || api.created[1]["type"] != "dns" {
+		t.Fatalf("measurements = %v, want the AAAA lookup to run after the A deadline", api.created)
+	}
+}
+
 type fakeCoverChecker struct {
 	verdicts map[string]CoverVerdict
 	err      error

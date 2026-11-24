@@ -106,14 +106,16 @@ func (c *Client) CheckCover(ctx context.Context, host string) (CoverVerdict, err
 		return v, nil
 	}
 
+	aaaaCtx, cancel := context.WithTimeout(ctx, c.Deadline)
+	defer cancel()
 	var aaaaOpts dnsOptions
 	aaaaOpts.Query.Type = "AAAA"
-	aaaaID, err := c.start(dnsCtx, createRequest{Type: "dns", Target: host, Locations: id, Options: aaaaOpts})
+	aaaaID, err := c.start(aaaaCtx, createRequest{Type: "dns", Target: host, Locations: id, Options: aaaaOpts})
 	if err != nil {
 		return CoverVerdict{}, err
 	}
 	var aaaa dnsMeasurement
-	if err := c.await(dnsCtx, aaaaID, &aaaa); err != nil {
+	if err := c.await(aaaaCtx, aaaaID, &aaaa); err != nil {
 		return CoverVerdict{}, err
 	}
 	if v := judgeDNS(aaaa); !v.OK {
