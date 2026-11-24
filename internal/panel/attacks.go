@@ -327,7 +327,14 @@ func (s *Server) getAttackReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) clearAttacks(w http.ResponseWriter, r *http.Request) {
-	if err := s.st.ClearAttacks(r.Context()); err != nil {
+	st := &s.attackState
+	st.mu.Lock()
+	err := s.st.ClearAttacks(r.Context())
+	if err == nil {
+		s.attacks.Drain()
+	}
+	st.mu.Unlock()
+	if err != nil {
 		s.writeFail(w, err)
 		return
 	}

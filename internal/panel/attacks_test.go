@@ -506,6 +506,33 @@ func TestAttackEndpointsValidateAndRequireLogin(t *testing.T) {
 	}
 }
 
+func TestClearingAttacksDropsRestoredPendingHits(t *testing.T) {
+	a := newAttackFixture(t)
+	a.log.queued = []string{"Connection closed by 198.51.100.9 port 40003 [preauth]"}
+
+	raw, err := sql.Open("sqlite", a.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`CREATE TRIGGER fail_attack_recording BEFORE INSERT ON attackers BEGIN
+		SELECT RAISE(FAIL, 'injected attack store failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.runner.Tick(context.Background()); err == nil {
+		t.Fatal("tick with a failing attack store returned nil")
+	}
+	if _, err := raw.Exec(`DROP TRIGGER fail_attack_recording`); err != nil {
+		t.Fatal(err)
+	}
+
+	expectStatus(t, a.do("DELETE", "/api/attacks", nil, withCookie(a.cookie)), http.StatusNoContent)
+	a.tick()
+	if s := a.summary(); s.Hits != 0 || s.Sources != 0 || len(s.Kinds) != 0 {
+		t.Fatalf("summary after clearing and retrying = %+v; want no attack records", s)
+	}
+}
+
 func TestOldAttacksArePruned(t *testing.T) {
 	a := newAttackFixture(t)
 	a.log.queued = []string{"Connection closed by 198.51.100.9 port 40003 [preauth]"}
