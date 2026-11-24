@@ -68,16 +68,14 @@ const (
 )
 
 func proveAfterReload(ctx context.Context, prove func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(ctx, keyLoginProofTimeout)
-	defer cancel()
-
+	start := time.Now()
 	for {
 		err := prove(ctx)
 		if err == nil {
 			return nil
 		}
 		var unreachable *UnreachableError
-		if !errors.As(err, &unreachable) || ctx.Err() != nil {
+		if !errors.As(err, &unreachable) || ctx.Err() != nil || time.Since(start) >= keyLoginProofTimeout {
 			return err
 		}
 		timer := time.NewTimer(keyLoginProofInterval)

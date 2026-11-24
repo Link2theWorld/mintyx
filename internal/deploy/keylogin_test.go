@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Link2theWorld/mintyx/internal/deploy/deploytest"
 )
@@ -128,6 +130,37 @@ func TestKeyLoginRetriesAfterSSHDReloadDropsFirstConnection(t *testing.T) {
 	want := []string{"authorized-keys-add", "keylogin-apply"}
 	if got := k.v.RanNames(); !slices.Equal(got, want) {
 		t.Fatalf("scripts = %v, want %v", got, want)
+	}
+}
+
+func TestProveAfterReloadKeepsParentDeadlineForProof(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	wantDeadline, _ := ctx.Deadline()
+	var gotDeadline time.Time
+
+	if err := proveAfterReload(ctx, func(proofCtx context.Context) error {
+		gotDeadline, _ = proofCtx.Deadline()
+		return nil
+	}); err != nil {
+		t.Fatalf("proveAfterReload: %v", err)
+	}
+	if !gotDeadline.Equal(wantDeadline) {
+		t.Fatalf("proof deadline = %v, want parent deadline %v", gotDeadline, wantDeadline)
+	}
+}
+
+func TestProveAfterReloadDoesNotRetryAuthenticationFailure(t *testing.T) {
+	attempts := 0
+	err := proveAfterReload(context.Background(), func(context.Context) error {
+		attempts++
+		return ErrAuth
+	})
+	if !errors.Is(err, ErrAuth) {
+		t.Fatalf("proveAfterReload error = %v, want ErrAuth", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("proof attempts = %d, want 1", attempts)
 	}
 }
 
