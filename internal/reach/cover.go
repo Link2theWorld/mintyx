@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	// CoverProbes is how many mainland probes judge a candidate cover site. A check runs two
-	// measurements on the same probes, so it costs twice this many tests.
+	// CoverProbes is how many mainland probes judge a candidate cover site. A check runs three
+	// measurements on the same probes, so it costs three times this many tests.
 	CoverProbes = 3
 	// CoverBudget is how many tests cover-site checks may spend in any hour. The loop keeps to
 	// ScheduledBudget and a manual round costs at most MaxMeasurements*ProbesPerMeasurement (96),
@@ -22,7 +22,7 @@ const (
 )
 
 // CoverCost is how many tests one cover-site check spends at most.
-func CoverCost() int { return 2 * CoverProbes }
+func CoverCost() int { return 3 * CoverProbes }
 
 // CoverVerdict is what mainland probes concluded about a candidate cover site.
 type CoverVerdict struct {
@@ -84,8 +84,8 @@ type httpMeasurement struct {
 //   - most of them cannot load it over HTTPS: a blocked site makes a conspicuous cover;
 //   - most that can do not get TLS 1.3.
 //
-// The second measurement reuses the first one's probes, and is skipped when the first one
-// already turned the site down.
+// The AAAA and HTTP measurements reuse the A lookup's probes. HTTP is skipped when either DNS
+// lookup turns the site down.
 func (c *Client) CheckCover(ctx context.Context, host string) (CoverVerdict, error) {
 	dnsCtx, cancel := context.WithTimeout(ctx, c.Deadline)
 	defer cancel()
@@ -103,6 +103,20 @@ func (c *Client) CheckCover(ctx context.Context, host string) (CoverVerdict, err
 		return CoverVerdict{}, err
 	}
 	if v := judgeDNS(dm); !v.OK {
+		return v, nil
+	}
+
+	var aaaaOpts dnsOptions
+	aaaaOpts.Query.Type = "AAAA"
+	aaaaID, err := c.start(dnsCtx, createRequest{Type: "dns", Target: host, Locations: id, Options: aaaaOpts})
+	if err != nil {
+		return CoverVerdict{}, err
+	}
+	var aaaa dnsMeasurement
+	if err := c.await(dnsCtx, aaaaID, &aaaa); err != nil {
+		return CoverVerdict{}, err
+	}
+	if v := judgeDNS(aaaa); !v.OK {
 		return v, nil
 	}
 
