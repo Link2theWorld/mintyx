@@ -221,7 +221,8 @@ func (s *Server) buildReality(l *model.Line, r *realityDTO, prev *model.Line) er
 	}
 	host, port, err := net.SplitHostPort(p.Target)
 	n, perr := strconv.Atoi(port)
-	if err != nil || host == "" || perr != nil || !validPort(n) || !validDialHost(host) {
+	if err != nil || host == "" || perr != nil || !validPort(n) ||
+		(!validDialHost(host) && !validHostname(strings.TrimSuffix(host, "."))) {
 		return invalid("reality.target", "target must be host:port")
 	}
 	if !validShortID(p.ShortID) {

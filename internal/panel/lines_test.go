@@ -98,6 +98,17 @@ func TestLineValidation(t *testing.T) {
 	if n := f.eng.syncCount(); n != 0 {
 		t.Fatalf("invalid requests synced %d times", n)
 	}
+
+	absoluteTarget := realityLine("absolute target", 443)
+	absoluteTarget["reality"].(map[string]any)["target"] = "cover.example.:443"
+	created := decodeBody[lineDTO](t, f.do("POST", "/api/lines", absoluteTarget, withCookie(c)))
+	if created.Reality == nil || created.Reality.Target != "cover.example.:443" {
+		t.Fatalf("created REALITY target = %+v; want cover.example.:443 preserved", created.Reality)
+	}
+	stored, err := f.st.GetLine(t.Context(), created.ID)
+	if err != nil || stored.Reality == nil || stored.Reality.Target != "cover.example.:443" {
+		t.Fatalf("stored REALITY target = %+v, err %v; want cover.example.:443 preserved", stored.Reality, err)
+	}
 }
 
 func TestLineDuplicatePortConflict(t *testing.T) {
