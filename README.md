@@ -4,6 +4,12 @@
 
 A self-hosted Xray panel for one person, with a desktop deployer that installs it on your server over SSH.
 
+## 教学视频
+
+3 分钟看完：一键部署、基础功能、只有 Mintyx 才有的功能。
+
+https://github.com/user-attachments/assets/86d28c96-c89a-4ff3-a594-acabcf82d8ec
+
 ## 开始用
 
 **1. 下载部署器**
@@ -42,9 +48,10 @@ Windows 上双击 exe；macOS 上双击解压 zip，再双击 `mintyx-deploy`。
 ## 面板里有什么
 
 - **概览**：线路和访客数量、总流量、Xray 的运行状态。
-- **线路**：VLESS + REALITY、VLESS + XHTTP、Hysteria2 三种入站，端口和密钥自动生成。
+- **线路**：VLESS + REALITY、VLESS + XHTTP、Hysteria2 三种入站，端口和密钥自动生成。REALITY 走 443/tcp，Hysteria2 走 443/udp，可以放在同一台服务器上。
+- **伪装网站**：REALITY 的伪装网站按服务器所在地区自动挑选，每 6 小时复查一次，不合格就自动换一个。开了连通性检测，还会从国内探测点核对候选站点。
 - **访客**：每台设备或每位亲友一个，可以设流量上限和到期时间，用完自动停用，也可以每月自动清零。
-- **分享**：订阅地址和单条链接，按对方的手机系统推荐 App。
+- **分享**：订阅地址和单条链接，按对方的手机系统推荐 App。可以把别的服务器上的线路并进同一个订阅。
 - **连通性检测**：定时从国内探测点测线路，分清是被墙还是服务器本身出了问题，有变化就发邮件。
 - **线路图**：访客、线路、出口和互联网画在一张图上，拖一条线就能换出口。
 - **攻击记录**：谁在扫端口、谁在猜密码，按类型和来源汇总，可以生成英文举报信。
