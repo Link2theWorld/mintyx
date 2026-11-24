@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -12,11 +13,12 @@ import (
 	"time"
 )
 
-// coverAPI answers a dns measurement as "d1" and an http one as "h1" with the bodies given.
+// coverAPI answers DNS measurements as d1/d2 and HTTP as h1 with the bodies given.
 type coverAPI struct {
-	mu      sync.Mutex
-	created []map[string]any
-	bodies  map[string]string
+	mu       sync.Mutex
+	created  []map[string]any
+	bodies   map[string]string
+	dnsCount int
 }
 
 func (a *coverAPI) handler(t *testing.T) http.Handler {
@@ -29,8 +31,12 @@ func (a *coverAPI) handler(t *testing.T) http.Handler {
 		}
 		a.mu.Lock()
 		a.created = append(a.created, body)
+		id := "h1"
+		if body["type"] == "dns" {
+			a.dnsCount++
+			id = fmt.Sprintf("d%d", a.dnsCount)
+		}
 		a.mu.Unlock()
-		id := map[any]string{"dns": "d1", "http": "h1"}[body["type"]]
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"id":"` + id + `"}`))
 	})
@@ -41,11 +47,15 @@ func (a *coverAPI) handler(t *testing.T) http.Handler {
 }
 
 func dnsBody(answers ...string) string {
+	return dnsBodyType("A", answers...)
+}
+
+func dnsBodyType(recordType string, answers ...string) string {
 	var rs []string
 	for _, a := range answers {
 		rs = append(rs, `{"probe":{"country":"CN"},"result":{"status":"finished","statusCodeName":"NOERROR","answers":[`+
 			`{"name":"cover.example.","type":"CNAME","ttl":60,"class":"IN","value":"cdn.example.net."},`+
-			`{"name":"cdn.example.net.","type":"A","ttl":60,"class":"IN","value":"`+a+`"}]}}`)
+			`{"name":"cdn.example.net.","type":"`+recordType+`","ttl":60,"class":"IN","value":"`+a+`"}]}}`)
 	}
 	return `{"status":"finished","results":[` + strings.Join(rs, ",") + `]}`
 }
@@ -65,34 +75,51 @@ func TestCheckCover(t *testing.T) {
 	tests := []struct {
 		name     string
 		dns      string
+		aaaa     string
 		http     string
 		want     CoverVerdict
 		wantErr  error
+		wantAAAA bool
 		wantHTTP bool
 	}{
-		{"abroad, reachable and TLS 1.3", dnsBody("93.184.215.14", "93.184.215.14", "93.184.215.14"),
-			httpBody(httpTLS13, httpTLS13, httpFailed), CoverVerdict{OK: true}, nil, true},
-		{"one mainland answer is enough to turn it down", dnsBody("93.184.215.14", "223.5.5.5", "93.184.215.14"),
-			"", CoverVerdict{Problem: "223.5.5.5"}, nil, false},
-		{"blocked from the mainland", dnsBody("93.184.215.14"),
-			httpBody(httpFailed, httpFailed, httpTLS13), CoverVerdict{Problem: "cannot be loaded"}, nil, true},
-		{"TLS 1.2 as the mainland sees it", dnsBody("93.184.215.14"),
-			httpBody(httpTLS12, httpTLS12, httpTLS13), CoverVerdict{Problem: "TLSv1.2"}, nil, true},
-		{"an even TLS split is not a majority failure", dnsBody("93.184.215.14"),
-			httpBody(httpTLS13, httpTLS12, httpBroken), CoverVerdict{OK: true}, nil, true},
-		{"only broken probes", dnsBody("93.184.215.14"),
-			httpBody(httpBroken, httpBroken), CoverVerdict{}, ErrNoCoverData, true},
+		{name: "abroad, reachable and TLS 1.3", dns: dnsBody("93.184.215.14", "93.184.215.14", "93.184.215.14"),
+			aaaa: dnsBodyType("AAAA", "2001:4860:4860::8888"), http: httpBody(httpTLS13, httpTLS13, httpFailed),
+			want: CoverVerdict{OK: true}, wantAAAA: true, wantHTTP: true},
+		{name: "one mainland answer is enough to turn it down", dns: dnsBody("93.184.215.14", "223.5.5.5", "93.184.215.14"),
+			want: CoverVerdict{Problem: "223.5.5.5"}},
+		{name: "a mainland IPv6 answer is enough to turn it down", dns: dnsBody("93.184.215.14"),
+			aaaa: dnsBodyType("AAAA", "240e::1"), http: httpBody(httpTLS13), want: CoverVerdict{Problem: "240e::1"},
+			wantAAAA: true},
+		{name: "blocked from the mainland", dns: dnsBody("93.184.215.14"),
+			aaaa: dnsBodyType("AAAA", "2001:4860:4860::8888"), http: httpBody(httpFailed, httpFailed, httpTLS13),
+			want: CoverVerdict{Problem: "cannot be loaded"}, wantAAAA: true, wantHTTP: true},
+		{name: "TLS 1.2 as the mainland sees it", dns: dnsBody("93.184.215.14"),
+			aaaa: dnsBodyType("AAAA", "2001:4860:4860::8888"), http: httpBody(httpTLS12, httpTLS12, httpTLS13),
+			want: CoverVerdict{Problem: "TLSv1.2"}, wantAAAA: true, wantHTTP: true},
+		{name: "an even TLS split is not a majority failure", dns: dnsBody("93.184.215.14"),
+			aaaa: dnsBodyType("AAAA", "2001:4860:4860::8888"), http: httpBody(httpTLS13, httpTLS12, httpBroken),
+			want: CoverVerdict{OK: true}, wantAAAA: true, wantHTTP: true},
+		{name: "only broken probes", dns: dnsBody("93.184.215.14"),
+			aaaa: dnsBodyType("AAAA", "2001:4860:4860::8888"), http: httpBody(httpBroken, httpBroken),
+			wantErr: ErrNoCoverData, wantAAAA: true, wantHTTP: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			api := &coverAPI{bodies: map[string]string{"d1": tt.dns, "h1": tt.http}}
+			api := &coverAPI{bodies: map[string]string{"d1": tt.dns, "d2": tt.aaaa, "h1": tt.http}}
 			c := newTestClient(t, api.handler(t))
 			got, err := c.CheckCover(context.Background(), "cover.example")
 			if !errors.Is(err, tt.wantErr) || got.OK != tt.want.OK || !strings.Contains(got.Problem, tt.want.Problem) {
 				t.Fatalf("CheckCover = %+v, %v; want %+v, %v", got, err, tt.want, tt.wantErr)
 			}
-			if got := len(api.created) == 2; got != tt.wantHTTP {
-				t.Fatalf("made %d measurements; want the http one only when DNS did not decide", len(api.created))
+			wantMeasurements := 1
+			if tt.wantAAAA {
+				wantMeasurements++
+			}
+			if tt.wantHTTP {
+				wantMeasurements++
+			}
+			if len(api.created) != wantMeasurements {
+				t.Fatalf("made %d measurements, want %d", len(api.created), wantMeasurements)
 			}
 			dns := api.created[0]
 			if dns["type"] != "dns" || dns["target"] != "cover.example" {
@@ -105,15 +132,43 @@ func TestCheckCover(t *testing.T) {
 			if opts, _ := json.Marshal(dns["measurementOptions"]); string(opts) != `{"query":{"type":"A"}}` {
 				t.Fatalf("dns options = %s", opts)
 			}
+			if tt.wantAAAA {
+				aaaa := api.created[1]
+				opts, _ := json.Marshal(aaaa["measurementOptions"])
+				if aaaa["type"] != "dns" || aaaa["target"] != "cover.example" || aaaa["locations"] != "d1" ||
+					string(opts) != `{"query":{"type":"AAAA"}}` {
+					t.Fatalf("second measurement = %v (options %s), want an AAAA lookup on the original dns probes", aaaa, opts)
+				}
+			}
 			if tt.wantHTTP {
-				h := api.created[1]
+				h := api.created[wantMeasurements-1]
 				opts, _ := json.Marshal(h["measurementOptions"])
 				if h["type"] != "http" || h["target"] != "cover.example" || h["locations"] != "d1" ||
 					string(opts) != `{"port":443,"protocol":"HTTPS","request":{"method":"HEAD","path":"/"}}` {
-					t.Fatalf("second measurement = %v (options %s), want HTTPS to the site on the dns probes", h, opts)
+					t.Fatalf("HTTP measurement = %v (options %s), want HTTPS to the site on the dns probes", h, opts)
 				}
 			}
 		})
+	}
+}
+
+func TestCheckCoverAAAALookupGetsFreshDeadline(t *testing.T) {
+	api := &coverAPI{bodies: map[string]string{
+		"d1": `{"status":"in-progress","results":[{"probe":{"country":"CN"},"result":{"status":"in-progress"}}]}`,
+		"d2": dnsBodyType("AAAA", "240e::1"),
+	}}
+	c := newTestClient(t, api.handler(t))
+	c.Deadline = 50 * time.Millisecond
+
+	got, err := c.CheckCover(context.Background(), "cover.example")
+	if err != nil {
+		t.Fatalf("CheckCover: %v", err)
+	}
+	if got.OK || !strings.Contains(got.Problem, "240e::1") {
+		t.Fatalf("CheckCover = %+v, want the mainland AAAA answer to turn the site down", got)
+	}
+	if len(api.created) != 2 || api.created[1]["type"] != "dns" {
+		t.Fatalf("measurements = %v, want the AAAA lookup to run after the A deadline", api.created)
 	}
 }
 
