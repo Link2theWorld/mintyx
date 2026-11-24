@@ -25,7 +25,7 @@ export function formatBytes(bytes: number): string {
 /** GB (as typed in the form) to bytes. 0 means "no limit". */
 export function gbToBytes(gb: number | null | undefined): number {
   if (gb === null || gb === undefined || !Number.isFinite(gb) || gb <= 0) return 0;
-  return Math.round(Math.min(gb, MAX_QUOTA_GB) * BYTES_PER_GB);
+  return Math.max(1, Math.round(Math.min(gb, MAX_QUOTA_GB) * BYTES_PER_GB));
 }
 
 /**

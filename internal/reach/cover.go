@@ -164,7 +164,7 @@ func judgeHTTP(m httpMeasurement) (CoverVerdict, error) {
 		return CoverVerdict{}, ErrNoCoverData
 	case unreached > reached:
 		return CoverVerdict{Problem: fmt.Sprintf("cannot be loaded from mainland China (%d of %d probes failed)", unreached, reached+unreached)}, nil
-	case tls13*2 <= reached:
+	case tls13*2 < reached:
 		if other == "" {
 			other = "no TLS"
 		}

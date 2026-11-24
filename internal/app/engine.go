@@ -41,6 +41,9 @@ type Engine struct {
 	applied []byte
 	started bool
 	version string
+	// trafficDebt is traffic drained from Xray whose store write failed. The next quota
+	// read hands it to the runner, which then owns retrying it.
+	trafficDebt map[string]model.Traffic
 }
 
 func NewEngine(st *store.Store, proc Process, bin string, opt engine.Options, logger *slog.Logger) *Engine {
@@ -157,21 +160,44 @@ func (e *Engine) Stop() {
 func (e *Engine) saveTraffic(ctx context.Context) {
 	traffic, err := e.query(ctx)
 	if err == nil {
-		err = e.Store.AddTraffic(ctx, quota.ByClientID(traffic))
+		if err = e.Store.AddTraffic(ctx, quota.ByClientID(traffic)); err != nil {
+			// The counters are already drained, so keep the batch in memory for the next quota read.
+			e.trafficDebt = mergeTraffic(e.trafficDebt, traffic)
+		}
 	}
 	if err != nil && e.Logger != nil {
 		e.Logger.Warn("traffic since the last tick was not saved before the restart", "error", err)
 	}
 }
 
-// Traffic is the quota runner's source. It reports nothing while Xray is not running.
+func mergeTraffic(dst, src map[string]model.Traffic) map[string]model.Traffic {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]model.Traffic, len(src))
+	}
+	for tag, tr := range src {
+		total := dst[tag]
+		total.Up += tr.Up
+		total.Down += tr.Down
+		dst[tag] = total
+	}
+	return dst
+}
+
+// Traffic is the quota runner's source. It reports nothing new while Xray is not running,
+// but still hands over a batch an earlier restart could not store.
 func (e *Engine) Traffic(ctx context.Context) (map[string]model.Traffic, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	out := e.trafficDebt
+	e.trafficDebt = nil
 	if !e.started || !e.Proc.Status().Running {
-		return nil, nil
+		return out, nil
 	}
-	return e.query(ctx)
+	traffic, err := e.query(ctx)
+	return mergeTraffic(out, traffic), err
 }
 
 func (e *Engine) Status(ctx context.Context) panel.EngineStatus {

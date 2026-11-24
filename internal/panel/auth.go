@@ -350,7 +350,16 @@ func newLoginLimiter() *loginLimiter { return &loginLimiter{m: map[string]*attem
 func (l *loginLimiter) blocked(ip string, now time.Time) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if a := l.m[ip]; a != nil && now.Before(a.until) {
+	if a, tracked := l.m[ip]; tracked {
+		if now.Before(a.until) {
+			return a.until.Sub(now)
+		}
+		return 0
+	}
+	// Once the table is full further source addresses share the empty key rather than
+	// either growing memory without bound or bypassing the throttle untracked. An address
+	// that already has its own entry keeps it instead of inheriting the flood's lockout.
+	if a := l.m[""]; a != nil && now.Before(a.until) {
 		return a.until.Sub(now)
 	}
 	return 0
@@ -367,6 +376,13 @@ func (l *loginLimiter) fail(ip string, now time.Time) {
 		}
 	}
 	a := l.m[ip]
+	if a == nil && len(l.m) >= limiterSweepAt-1 {
+		// Leave one slot for this shared bucket, keeping the table at the cap. A flood of
+		// spoofed or botnet addresses then throttles itself collectively instead of evicting
+		// the protection or allocating one entry per address.
+		ip = ""
+		a = l.m[ip]
+	}
 	if a == nil || now.Sub(a.last) > loginLockout {
 		a = &attempts{}
 		l.m[ip] = a

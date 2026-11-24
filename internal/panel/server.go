@@ -23,6 +23,7 @@ import (
 	"github.com/Link2theWorld/mintyx/internal/hostapps"
 	"github.com/Link2theWorld/mintyx/internal/hostcheck"
 	"github.com/Link2theWorld/mintyx/internal/hostport"
+	"github.com/Link2theWorld/mintyx/internal/model"
 	"github.com/Link2theWorld/mintyx/internal/probe"
 	"github.com/Link2theWorld/mintyx/internal/rdap"
 	"github.com/Link2theWorld/mintyx/internal/reach"
@@ -142,8 +143,9 @@ type Server struct {
 
 	// mu serialises every store mutation with quota ticks and Sync, so a tick never
 	// reconciles from a client row an admin request is halfway through changing.
-	mu          sync.Mutex
-	syncPending bool
+	mu              sync.Mutex
+	syncPending     bool
+	unstoredTraffic map[int64]model.Traffic
 	// configRefused is whether the last Sync failed because Xray refused the store's config.
 	configRefused bool
 

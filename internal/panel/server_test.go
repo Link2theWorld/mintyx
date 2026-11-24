@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
@@ -172,6 +173,63 @@ func TestRunnerSyncsOnlyOnChange(t *testing.T) {
 	}
 	if got, _ := f.st.GetClient(t.Context(), cl.ID); got.Disabled != model.DisabledQuota || got.UsedUp != 80 {
 		t.Fatalf("client after tick = %+v", got)
+	}
+}
+
+func TestRunnerRetriesTrafficAfterFailedWrite(t *testing.T) {
+	f := newFixture(t, nil)
+	c := f.setup()
+	cl := f.createClient(c, "phone", 100)
+	reset := f.createClient(c, "tablet", 100)
+	ctx := t.Context()
+	raw, err := sql.Open("sqlite", f.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`CREATE TRIGGER fail_traffic BEFORE UPDATE OF used_down ON clients BEGIN
+		SELECT RAISE(FAIL, 'injected traffic store failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	batch := map[string]model.Traffic{
+		(model.Client{ID: cl.ID}).StatsTag():    {Down: 120},
+		(model.Client{ID: reset.ID}).StatsTag(): {Down: 25},
+	}
+	reads := 0
+	r := f.srv.NewRunner(func(context.Context) (map[string]model.Traffic, error) {
+		reads++
+		traffic := batch
+		batch = nil // Xray drains its counters when read.
+		return traffic, nil
+	}, time.Minute)
+	if err := r.Tick(ctx); err == nil || !strings.Contains(err.Error(), "injected traffic store failure") {
+		t.Fatalf("tick error = %v, want traffic write failure", err)
+	}
+	if err := r.Tick(ctx); err == nil || reads != 1 {
+		t.Fatalf("tick during continued failure: error = %v, source reads = %d; want error and no second read", err, reads)
+	}
+	if _, err := raw.Exec(`DROP TRIGGER fail_traffic`); err != nil {
+		t.Fatal(err)
+	}
+	expectStatus(t, f.do("POST", "/api/clients/"+itoa(reset.ID)+"/reset-traffic", nil, withCookie(c)), http.StatusNoContent)
+	for range 2 {
+		if err := r.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+		got, err := f.st.GetClient(ctx, cl.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.UsedDown != 120 || got.Disabled != model.DisabledQuota {
+			t.Fatalf("retried tick: stored %d bytes, blocked %q; want 120 bytes once and quota block", got.UsedDown, got.Disabled)
+		}
+		got, err = f.st.GetClient(ctx, reset.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.UsedDown != 0 {
+			t.Fatalf("manual reset restored %d bytes from the failed batch", got.UsedDown)
+		}
 	}
 }
 

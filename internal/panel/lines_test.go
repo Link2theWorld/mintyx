@@ -73,6 +73,7 @@ func TestLineValidation(t *testing.T) {
 		{"reality without server name", with(func(m map[string]any) { params(m)["serverName"] = "" }), "reality.serverName"},
 		{"reality malformed server name", with(func(m map[string]any) { params(m)["serverName"] = "-bad.example" }), "reality.serverName"},
 		{"reality target without port", with(func(m map[string]any) { params(m)["target"] = "www.example.com" }), "reality.target"},
+		{"reality target with a malformed host", with(func(m map[string]any) { params(m)["target"] = "bad host:443" }), "reality.target"},
 		{"reality bad short id", with(func(m map[string]any) { params(m)["shortId"] = "xyz" }), "reality.shortId"},
 		{"reality public key without private", with(func(m map[string]any) { params(m)["publicKey"] = "abc" }), "reality.publicKey"},
 		{"bad host", with(func(m map[string]any) { m["host"] = "a b" }), "host"},
@@ -96,6 +97,17 @@ func TestLineValidation(t *testing.T) {
 	}
 	if n := f.eng.syncCount(); n != 0 {
 		t.Fatalf("invalid requests synced %d times", n)
+	}
+
+	absoluteTarget := realityLine("absolute target", 443)
+	absoluteTarget["reality"].(map[string]any)["target"] = "cover.example.:443"
+	created := decodeBody[lineDTO](t, f.do("POST", "/api/lines", absoluteTarget, withCookie(c)))
+	if created.Reality == nil || created.Reality.Target != "cover.example.:443" {
+		t.Fatalf("created REALITY target = %+v; want cover.example.:443 preserved", created.Reality)
+	}
+	stored, err := f.st.GetLine(t.Context(), created.ID)
+	if err != nil || stored.Reality == nil || stored.Reality.Target != "cover.example.:443" {
+		t.Fatalf("stored REALITY target = %+v, err %v; want cover.example.:443 preserved", stored.Reality, err)
 	}
 }
 

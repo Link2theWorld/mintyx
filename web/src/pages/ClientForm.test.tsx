@@ -35,6 +35,17 @@ describe("ClientForm preserves existing limits", () => {
     });
   });
 
+  it("does not turn a positive fractional quota into unlimited", async () => {
+    localStorage.setItem(LANG_KEY, "en");
+    const onSubmit = vi.fn(() => Promise.resolve());
+    renderWithProviders(<ClientForm client={null} onSubmit={onSubmit} onCancel={() => undefined} />);
+    await userEvent.type(screen.getByLabelText("Name"), "Phone");
+    await userEvent.clear(screen.getByRole("spinbutton"));
+    await userEvent.type(screen.getByRole("spinbutton"), "0.0000000001");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ quotaBytes: 1 })));
+  });
+
   it("allows removing existing limits", async () => {
     localStorage.setItem(LANG_KEY, "en");
     const onSubmit = vi.fn(() => Promise.resolve());

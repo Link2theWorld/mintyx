@@ -78,6 +78,8 @@ func TestCheckCover(t *testing.T) {
 			httpBody(httpFailed, httpFailed, httpTLS13), CoverVerdict{Problem: "cannot be loaded"}, nil, true},
 		{"TLS 1.2 as the mainland sees it", dnsBody("93.184.215.14"),
 			httpBody(httpTLS12, httpTLS12, httpTLS13), CoverVerdict{Problem: "TLSv1.2"}, nil, true},
+		{"an even TLS split is not a majority failure", dnsBody("93.184.215.14"),
+			httpBody(httpTLS13, httpTLS12, httpBroken), CoverVerdict{OK: true}, nil, true},
 		{"only broken probes", dnsBody("93.184.215.14"),
 			httpBody(httpBroken, httpBroken), CoverVerdict{}, ErrNoCoverData, true},
 	}

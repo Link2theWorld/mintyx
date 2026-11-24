@@ -63,41 +63,56 @@ type Result struct {
 	Changed bool
 	// CycleResets are the clients whose monthly usage went back to zero, as they were before.
 	CycleResets []model.Client
+	// UnstoredTraffic is the batch to retry if AddTraffic failed.
+	UnstoredTraffic map[int64]model.Traffic
 }
 
-// Tick records new traffic, starts due monthly cycles and reconciles blocks. Monthly days
-// are read in loc; a nil loc skips monthly cycles this time. A failing source is returned as
-// err only after everything else still ran.
+// Tick starts due monthly cycles, then records new traffic and reconciles blocks. One batch
+// cannot be split at midnight, so it belongs to the cycle in force when it is collected;
+// resetting after storing it would erase use after the boundary and invite quota abuse.
+// Monthly days are read in loc; a nil loc skips monthly cycles this time. A failing source
+// is returned as err only after everything else ran.
 func Tick(ctx context.Context, st Store, source TrafficSource, now time.Time, loc *time.Location) (Result, error) {
 	var res Result
-	traffic, sourceErr := source(ctx)
-	if add := ByClientID(traffic); len(add) > 0 {
-		if err := st.AddTraffic(ctx, add); err != nil {
-			return res, err
-		}
-	}
-
+	refresh := false
 	clients, err := st.ListClients(ctx)
 	if err != nil {
 		return res, err
 	}
 	for _, c := range clients {
-		if c.QuotaResetDay > 0 && loc != nil {
-			start := CycleStart(c.QuotaResetDay, now, loc)
-			if c.CycleStart == nil || c.CycleStart.Before(start) {
-				// No cycle recorded yet means nothing to end: anchor it without zeroing.
-				zero := c.CycleStart != nil
-				started, err := st.StartCycle(ctx, c.ID, start, zero)
-				if err != nil {
-					return res, err
-				}
-				if started && zero {
-					res.CycleResets = append(res.CycleResets, c)
-					c.UsedUp, c.UsedDown = 0, 0
-				}
-				c.CycleStart = &start
+		if c.QuotaResetDay == 0 || loc == nil {
+			continue
+		}
+		start := CycleStart(c.QuotaResetDay, now, loc)
+		if c.CycleStart == nil || c.CycleStart.Before(start) {
+			// No cycle recorded yet means nothing to end: anchor it without zeroing.
+			zero := c.CycleStart != nil
+			started, err := st.StartCycle(ctx, c.ID, start, zero)
+			if err != nil {
+				return res, err
+			}
+			if started && zero {
+				res.CycleResets = append(res.CycleResets, c)
+				refresh = true
 			}
 		}
+	}
+
+	traffic, sourceErr := source(ctx)
+	if add := ByClientID(traffic); len(add) > 0 {
+		if err := st.AddTraffic(ctx, add); err != nil {
+			res.UnstoredTraffic = add
+			return res, err
+		}
+		refresh = true
+	}
+	if refresh {
+		// The block pass needs the counters as stored, including this batch and any reset above.
+		if clients, err = st.ListClients(ctx); err != nil {
+			return res, err
+		}
+	}
+	for _, c := range clients {
 		want := Desired(c, now)
 		if want == c.Disabled {
 			continue

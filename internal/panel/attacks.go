@@ -58,14 +58,22 @@ type Whois interface {
 // empty, and returns the cursor to continue from.
 type SSHLogReader func(ctx context.Context, cursor string, backlog time.Duration, fn func(at time.Time, msg string)) (string, error)
 
+// sshCursorUpdate is the cursor a journal read ended at. It is only saved after the messages read
+// ahead of the old cursor have been stored; saving it earlier would make a crash lose those hits.
+type sshCursorUpdate struct {
+	value string
+	save  bool
+}
+
 // attackState is what the collector loop last ran into, for the status the page shows.
 type attackState struct {
-	mu          sync.Mutex
-	sshLog      string
-	backlog     time.Duration
-	lookupError string
-	pausedUntil time.Time
-	prunedAt    time.Time
+	mu            sync.Mutex
+	sshLog        string
+	backlog       time.Duration
+	pendingCursor *string
+	lookupError   string
+	pausedUntil   time.Time
+	prunedAt      time.Time
 }
 
 type attackConfigDTO struct {
@@ -319,7 +327,14 @@ func (s *Server) getAttackReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) clearAttacks(w http.ResponseWriter, r *http.Request) {
-	if err := s.st.ClearAttacks(r.Context()); err != nil {
+	st := &s.attackState
+	st.mu.Lock()
+	err := s.st.ClearAttacks(r.Context())
+	if err == nil {
+		s.attacks.Drain()
+	}
+	st.mu.Unlock()
+	if err != nil {
 		s.writeFail(w, err)
 		return
 	}
@@ -342,23 +357,36 @@ func (s *Server) NewAttackRunner(interval time.Duration) *AttackRunner {
 	return &AttackRunner{s: s, interval: interval}
 }
 
-// Tick runs one pass. Its steps are independent: a failure in one does not skip the others.
+// Tick runs one pass. Pruning and registry lookups are independent of a read or store failure;
+// the cursor is not. It moves in the same transaction as the hits read ahead of it, so a crash
+// or a failed write can neither lose those hits nor replay them into a duplicate.
 func (r *AttackRunner) Tick(ctx context.Context) error {
 	s := r.s
-	return errors.Join(s.readSSHLog(ctx), s.storeAttacks(ctx), s.pruneAttacks(ctx), s.lookUpAttackers(ctx))
+	cursor, readErr := s.readSSHLog(ctx)
+	storeErr := s.storeAttacksWithCursor(ctx, cursor)
+	return errors.Join(readErr, storeErr, s.pruneAttacks(ctx), s.lookUpAttackers(ctx))
 }
 
-func (s *Server) readSSHLog(ctx context.Context) error {
+func (s *Server) readSSHLog(ctx context.Context) (sshCursorUpdate, error) {
 	st := &s.attackState
 	st.mu.Lock()
 	backlog := st.backlog
+	var pendingCursor *string
+	if st.pendingCursor != nil {
+		pending := *st.pendingCursor
+		pendingCursor = &pending
+	}
 	st.mu.Unlock()
 	if backlog == 0 {
 		backlog = attackFirstBacklog
 	}
-	cursor, _, err := s.st.GetSetting(ctx, settingAttackCursor)
+	dbCursor, _, err := s.st.GetSetting(ctx, settingAttackCursor)
 	if err != nil {
-		return err
+		return sshCursorUpdate{}, err
+	}
+	cursor := dbCursor
+	if pendingCursor != nil {
+		cursor = *pendingCursor
 	}
 	next, err := s.sshLog(ctx, cursor, backlog, s.attacks.SSH)
 
@@ -367,7 +395,7 @@ func (s *Server) readSSHLog(ctx context.Context) error {
 	case errors.Is(err, attack.ErrNoJournal):
 		state, err = sshLogUnavailable, nil
 	case err != nil && ctx.Err() != nil:
-		return ctx.Err()
+		return sshCursorUpdate{}, ctx.Err()
 	case err != nil:
 		// Most likely the journal rotated the cursor away; start again from now.
 		state, next = sshLogError, ""
@@ -378,18 +406,38 @@ func (s *Server) readSSHLog(ctx context.Context) error {
 		st.backlog = attackResyncBacklog
 	}
 	st.mu.Unlock()
-	if next != cursor {
-		if serr := s.st.SetSetting(context.WithoutCancel(ctx), settingAttackCursor, next); serr != nil {
-			return errors.Join(err, serr)
-		}
-	}
-	return err
+	return sshCursorUpdate{value: next, save: next != dbCursor || pendingCursor != nil}, err
 }
 
 func (s *Server) storeAttacks(ctx context.Context) error {
+	return s.storeAttacksWithCursor(ctx, sshCursorUpdate{})
+}
+
+func (s *Server) storeAttacksWithCursor(ctx context.Context, cursor sshCursorUpdate) error {
+	st := &s.attackState
+	st.mu.Lock()
+	if !cursor.save && st.pendingCursor != nil {
+		cursor = sshCursorUpdate{value: *st.pendingCursor, save: true}
+	}
 	hits, trusted := s.attacks.Drain()
-	// Already drained, so a shutdown must not lose them.
-	return s.st.RecordAttacks(context.WithoutCancel(ctx), hits, trusted, s.now())
+	// Already drained, so a shutdown must not lose them. A real store failure is different:
+	// put the batch back and keep the cursor so the next read resumes after these SSH lines.
+	key, value := "", ""
+	if cursor.save {
+		key, value = settingAttackCursor, cursor.value
+	}
+	err := s.st.RecordAttacksAndSetting(context.WithoutCancel(ctx), hits, trusted, s.now(), key, value)
+	if err != nil {
+		s.attacks.Restore(hits, trusted)
+		if cursor.save {
+			pending := cursor.value
+			st.pendingCursor = &pending
+		}
+	} else if cursor.save {
+		st.pendingCursor = nil
+	}
+	st.mu.Unlock()
+	return err
 }
 
 func (s *Server) pruneAttacks(ctx context.Context) error {
