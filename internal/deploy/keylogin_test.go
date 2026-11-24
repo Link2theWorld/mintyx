@@ -108,6 +108,29 @@ func TestKeyLoginSucceeds(t *testing.T) {
 	}
 }
 
+func TestKeyLoginRetriesAfterSSHDReloadDropsFirstConnection(t *testing.T) {
+	k := newKeyLoginCase(t, func(v *deploytest.VPS) {
+		v.DropSSHConnectionAfterKeyLoginApply = true
+	})
+	res, err := k.enable(t)
+	if err != nil {
+		t.Fatalf("EnableKeyLogin: %v", err)
+	}
+	if res == nil || !res.PasswordOff {
+		t.Fatalf("res = %+v, want password login disabled after verification", res)
+	}
+	if !k.keyLoginWorks(t, res.KeyPath) {
+		t.Fatal("the saved key cannot log in after the transient disconnect")
+	}
+	if k.passwordLoginWorks(t) {
+		t.Fatal("password login still works")
+	}
+	want := []string{"authorized-keys-add", "keylogin-apply"}
+	if got := k.v.RanNames(); !slices.Equal(got, want) {
+		t.Fatalf("scripts = %v, want %v", got, want)
+	}
+}
+
 // Outcome: the key never worked, so sshd must not have been touched at all.
 func TestKeyLoginStopsWhenTheKeyNeverWorks(t *testing.T) {
 	k := newKeyLoginCase(t, func(v *deploytest.VPS) { v.IgnoreAuthorizedKeys = true })

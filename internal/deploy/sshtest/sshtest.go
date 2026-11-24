@@ -54,6 +54,7 @@ type Server struct {
 	records     []Record
 	conns       map[net.Conn]bool
 	closed      bool
+	dropNext    int
 }
 
 // New starts a server that accepts nobody until SetPassword or AuthorizeKey is called.
@@ -146,6 +147,13 @@ func (s *Server) PasswordDisabled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.passwordOff
+}
+
+// DropNextConnections closes the next n TCP connections before SSH negotiation.
+func (s *Server) DropNextConnections(n int) {
+	s.mu.Lock()
+	s.dropNext += n
+	s.mu.Unlock()
 }
 
 func (s *Server) AuthorizeKey(user string, key ssh.PublicKey) {
@@ -247,6 +255,15 @@ func (s *Server) config() *ssh.ServerConfig {
 
 func (s *Server) handleConn(c net.Conn) {
 	defer c.Close()
+	s.mu.Lock()
+	drop := s.dropNext > 0
+	if drop {
+		s.dropNext--
+	}
+	s.mu.Unlock()
+	if drop {
+		return
+	}
 	conn, chans, reqs, err := ssh.NewServerConn(c, s.config())
 	if err != nil {
 		return
