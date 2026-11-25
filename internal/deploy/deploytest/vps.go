@@ -63,6 +63,8 @@ type VPS struct {
 	IgnoreAuthorizedKeys bool
 	// BreakKeysWithPasswords emulates a server where turning passwords off also kills key login.
 	BreakKeysWithPasswords bool
+	// DropSSHConnectionAfterKeyLoginApply emulates a short listener gap during sshd reload.
+	DropSSHConnectionAfterKeyLoginApply bool
 	// OtherConfigKeepsPasswords emulates another sshd config file that wins over the drop-in.
 	OtherConfigKeepsPasswords bool
 	// SSHDSilent emulates an sshd whose `sshd -T` fails, so its settings cannot be read.
@@ -420,6 +422,9 @@ func (v *VPS) script(e *sshtest.Exec, in io.Reader, asRoot bool) int {
 		}
 		v.files[vars["DROPIN"]] = []byte("PasswordAuthentication no\n")
 		v.SSH.DisablePassword()
+		if v.DropSSHConnectionAfterKeyLoginApply {
+			v.SSH.DropNextConnections(1)
+		}
 		if v.BreakKeysWithPasswords {
 			v.SSH.RevokeAllKeys(e.User)
 		}

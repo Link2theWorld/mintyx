@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -61,6 +62,32 @@ type KeyLoginResult struct {
 	PasswordOff bool
 }
 
+const (
+	keyLoginProofTimeout  = 5 * time.Second
+	keyLoginProofInterval = 100 * time.Millisecond
+)
+
+func proveAfterReload(ctx context.Context, prove func(context.Context) error) error {
+	start := time.Now()
+	for {
+		err := prove(ctx)
+		if err == nil {
+			return nil
+		}
+		var unreachable *UnreachableError
+		if !errors.As(err, &unreachable) || ctx.Err() != nil || time.Since(start) >= keyLoginProofTimeout {
+			return err
+		}
+		timer := time.NewTimer(keyLoginProofInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+	}
+}
+
 // EnableKeyLogin creates a key, proves it logs in, and only then turns password login off,
 // proving the key again afterwards and undoing the change if that fails.
 func (c *Client) EnableKeyLogin(ctx context.Context, opt KeyLoginOptions) (*KeyLoginResult, error) {
@@ -97,15 +124,15 @@ func (c *Client) EnableKeyLogin(ctx context.Context, opt KeyLoginOptions) (*KeyL
 		return nil, err
 	}
 
-	prove := func() error {
+	prove := func(proofCtx context.Context) error {
 		t := Target{Host: c.target.Host, Port: c.target.Port, User: c.target.User, PrivateKey: privPEM}
-		probe, err := Dial(ctx, t, Options{KnownHosts: opt.KnownHosts})
+		probe, err := Dial(proofCtx, t, Options{KnownHosts: opt.KnownHosts})
 		if err != nil {
 			return err
 		}
 		return probe.Close()
 	}
-	if err := prove(); err != nil {
+	if err := prove(ctx); err != nil {
 		discard()
 		return nil, fmt.Errorf("%w (%v)", ErrKeyNeverWorked, err)
 	}
@@ -129,7 +156,7 @@ func (c *Client) EnableKeyLogin(ctx context.Context, opt KeyLoginOptions) (*KeyL
 		return res, fmt.Errorf("keylogin-apply: unexpected answer %q", strings.TrimSpace(out.Stdout))
 	}
 
-	if proveErr := prove(); proveErr != nil {
+	if proveErr := proveAfterReload(ctx, prove); proveErr != nil {
 		rolled := &KeyLoginRolledBackError{Reason: "the key stopped working once passwords were off (" + proveErr.Error() + ")"}
 		// This runs on the connection that was open all along, which no sshd reload cuts.
 		if _, err := c.RunRoot(ctx, Script{Name: "keylogin-rollback", Body: keyLoginRollbackBody, Vars: dropIn}); err != nil {
